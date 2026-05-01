@@ -3,6 +3,8 @@ package assessment
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"diplomaBackend/assessment_service/dto"
 	assessmentErrors "diplomaBackend/assessment_service/errors"
@@ -10,20 +12,24 @@ import (
 	"diplomaBackend/assessment_service/repository"
 	"diplomaBackend/assessment_service/service"
 	"diplomaBackend/internal/logger"
+	progressService "diplomaBackend/progress_service/service"
 )
 
 type Service struct {
-	assessmentRepo repository.AssessmentRepository
-	txManager      repository.TxManager
+	assessmentRepo  repository.AssessmentRepository
+	txManager       repository.TxManager
+	progressService progressService.ProgressService
 }
 
 func NewService(
 	assessmentRepo repository.AssessmentRepository,
 	txManager repository.TxManager,
+	progressService progressService.ProgressService,
 ) service.AssessmentService {
 	return &Service{
-		assessmentRepo: assessmentRepo,
-		txManager:      txManager,
+		assessmentRepo:  assessmentRepo,
+		txManager:       txManager,
+		progressService: progressService,
 	}
 }
 
@@ -203,6 +209,26 @@ func (s *Service) SubmitAttempt(ctx context.Context, input service.SubmitQuizInp
 		return nil, err
 	}
 
+	if s.progressService != nil {
+		quizCode := buildQuizCode(attemptData.QuizType, attemptData.TopicCode, attemptData.SubtopicCode, attemptData.QuizID)
+
+		err = s.progressService.ProcessQuizResult(ctx, progressService.ProcessQuizResultInput{
+			UserID:         input.UserID,
+			QuizCode:       quizCode,
+			QuizType:       attemptData.QuizType,
+			TopicCode:      attemptData.TopicCode,
+			SubtopicCode:   attemptData.SubtopicCode,
+			ScorePoints:    correctCount,
+			MaxScorePoints: totalQuestions,
+			ScorePercent:   float64(scorePercent),
+			CompletedAt:    time.Now(),
+		})
+		if err != nil {
+			logger.Error("assessment service: failed to update progress: user_id=%d attempt_id=%d err=%v", input.UserID, input.AttemptID, err)
+			return nil, err
+		}
+	}
+
 	completedAttempt, err := s.assessmentRepo.GetAttemptByID(ctx, input.UserID, input.AttemptID)
 	if err != nil {
 		logger.Error("assessment service: failed to read completed attempt: user_id=%d attempt_id=%d err=%v", input.UserID, input.AttemptID, err)
@@ -374,23 +400,20 @@ func setsEqual(left, right map[int64]struct{}) bool {
 
 func calculateXPForScore(quizType string, score int) int {
 	if quizType == model.QuizTypeTopicFinalQuiz {
-		switch {
-		case score < 50:
-			return 10
-		case score < 75:
-			return 25
-		default:
+		if score >= 75 {
 			return 50
 		}
+
+		return 10
 	}
 
 	switch {
-	case score < 50:
-		return 5
-	case score < 75:
+	case score >= 100:
+		return 15
+	case score >= 50:
 		return 10
 	default:
-		return 15
+		return 5
 	}
 }
 
@@ -418,4 +441,20 @@ func isSupportedLanguage(languageCode string) bool {
 	default:
 		return false
 	}
+}
+
+func buildQuizCode(quizType string, topicCode *string, subtopicCode *string, quizID int64) string {
+	if quizType == model.QuizTypeTopicFinalQuiz {
+		if topicCode != nil && *topicCode != "" {
+			return fmt.Sprintf("%s_final", *topicCode)
+		}
+
+		return fmt.Sprintf("topic_final_quiz_%d", quizID)
+	}
+
+	if subtopicCode != nil && *subtopicCode != "" {
+		return *subtopicCode
+	}
+
+	return fmt.Sprintf("subtopic_quiz_%d", quizID)
 }

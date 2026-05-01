@@ -56,6 +56,8 @@ type AttemptCheckData struct {
 	UserID       int64
 	QuizID       int64
 	QuizType     string
+	TopicCode    *string
+	SubtopicCode *string
 	PassingScore int
 	Status       string
 	Questions    []QuestionCheckData

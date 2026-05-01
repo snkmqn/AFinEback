@@ -247,19 +247,21 @@ func (r *AssessmentRepository) CreateAttemptQuestions(ctx context.Context, attem
 
 func (r *AssessmentRepository) GetAttemptCheckData(ctx context.Context, userID, attemptID int64) (*model.AttemptCheckData, error) {
 	attemptQuery := `
-		select
-			qa.id,
-			qa.user_id,
-			qa.quiz_id,
-			coalesce(q.quiz_type, 'subtopic_quiz') as quiz_type,
-			q.passing_score,
-			qa.status
-		from quiz_attempts qa
-		join quizzes q
-			on q.id = qa.quiz_id
-		where qa.id = $1
-		  and qa.user_id = $2
-	`
+	select
+		qa.id,
+		qa.user_id,
+		qa.quiz_id,
+		coalesce(q.quiz_type, 'subtopic_quiz') as quiz_type,
+		q.topic_code,
+		q.subtopic_code,
+		q.passing_score,
+		qa.status
+	from quiz_attempts qa
+	join quizzes q
+		on q.id = qa.quiz_id
+	where qa.id = $1
+	  and qa.user_id = $2
+`
 
 	var data model.AttemptCheckData
 
@@ -268,6 +270,8 @@ func (r *AssessmentRepository) GetAttemptCheckData(ctx context.Context, userID, 
 		&data.UserID,
 		&data.QuizID,
 		&data.QuizType,
+		&data.TopicCode,
+		&data.SubtopicCode,
 		&data.PassingScore,
 		&data.Status,
 	); err != nil {

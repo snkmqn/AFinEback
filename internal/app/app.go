@@ -18,6 +18,9 @@ import (
 	"diplomaBackend/internal/config"
 	"diplomaBackend/internal/http/middleware"
 	storagePostgres "diplomaBackend/internal/storage/postgres"
+	progressHandler "diplomaBackend/progress_service/handler"
+	progressPostgres "diplomaBackend/progress_service/repository/postgres"
+	progressService "diplomaBackend/progress_service/service/progress"
 	userProfileHandler "diplomaBackend/user_profile_service/handler"
 	userProfilePostgres "diplomaBackend/user_profile_service/repository/postgres"
 	userProfileService "diplomaBackend/user_profile_service/service/user"
@@ -44,11 +47,10 @@ func New(cfg *config.Config) *App {
 	settingsRepo := userProfilePostgres.NewSettingsRepository(db)
 
 	contentRepo := contentPostgres.NewContentRepository(db)
-
 	assessmentRepo := assessmentPostgres.NewAssessmentRepository(db)
 	assessmentTxManager := assessmentPostgres.NewTxManager(db)
-
 	profileTxManager := userProfilePostgres.NewTxManager(db)
+	progressRepo := progressPostgres.NewProgressRepository(db)
 
 	profileSvc := userProfileService.NewService(
 		profileRepo,
@@ -58,10 +60,7 @@ func New(cfg *config.Config) *App {
 	)
 
 	contentSvc := contentService.NewService(contentRepo)
-
-	profileHandler := userProfileHandler.NewHandler(profileSvc)
-	contentHandler := contentHandler.NewHandler(contentSvc)
-
+	progressSvc := progressService.NewService(progressRepo)
 	passwordSvc := passwordservice.NewService()
 	jwtSvc := jwtservice.NewService(cfg.JWTAccessSecret, cfg.AccessTokenTTL)
 	googleVerifier := googleverifier.NewVerifier(cfg.GoogleClientID)
@@ -81,8 +80,12 @@ func New(cfg *config.Config) *App {
 	assessmentSvc := assessmentService.NewService(
 		assessmentRepo,
 		assessmentTxManager,
+		progressSvc,
 	)
 
+	profileHandler := userProfileHandler.NewHandler(profileSvc)
+	contentHandler := contentHandler.NewHandler(contentSvc)
+	progressHandler := progressHandler.NewHandler(progressSvc)
 	authHandler := authHandler.NewAuthHandler(authSvc)
 	assessmentHandler := assessmentHandler.NewHandler(assessmentSvc)
 	authMiddleware := middleware.AuthMiddleware(jwtSvc)
@@ -92,6 +95,7 @@ func New(cfg *config.Config) *App {
 		profileHandler,
 		contentHandler,
 		assessmentHandler,
+		progressHandler,
 		authMiddleware,
 	))
 

@@ -3,6 +3,7 @@ package app
 import (
 	assessmentHandler "diplomaBackend/assessment_service/handler"
 	contentHandler "diplomaBackend/content_service/handler"
+	progressHandler "diplomaBackend/progress_service/handler"
 	"net/http"
 
 	"diplomaBackend/authorization_service/handler"
@@ -14,6 +15,7 @@ func NewRouter(
 	profileHandler *profileHandler.Handler,
 	contentHandler *contentHandler.Handler,
 	assessmentHandler *assessmentHandler.Handler,
+	progressHandler *progressHandler.Handler,
 	authMiddleware func(http.Handler) http.Handler,
 ) http.Handler {
 	apiMux := http.NewServeMux()
@@ -42,6 +44,7 @@ func NewRouter(
 	apiMux.Handle("POST /assessment/attempts/{attemptId}/submit", authMiddleware(http.HandlerFunc(assessmentHandler.SubmitAttempt)))
 	apiMux.Handle("GET /assessment/quizzes/{quizId}/latest-attempt", authMiddleware(http.HandlerFunc(assessmentHandler.GetLatestAttemptByQuizID)))
 	apiMux.Handle("GET /assessment/attempts/{attemptId}", authMiddleware(http.HandlerFunc(assessmentHandler.GetAttemptByID)))
+	apiMux.Handle("GET /progress/me", authMiddleware(http.HandlerFunc(progressHandler.GetMyProgress)))
 
 	rootMux := http.NewServeMux()
 	rootMux.Handle("/api/", http.StripPrefix("/api", apiMux))
