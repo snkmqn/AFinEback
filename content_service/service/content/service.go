@@ -1,0 +1,60 @@
+package content
+
+import (
+	"context"
+
+	"diplomaBackend/content_service/dto"
+	"diplomaBackend/content_service/repository"
+	"diplomaBackend/content_service/service"
+	"diplomaBackend/internal/logger"
+)
+
+type Service struct {
+	contentRepo repository.ContentRepository
+}
+
+func NewService(contentRepo repository.ContentRepository) service.ContentService {
+	return &Service{
+		contentRepo: contentRepo,
+	}
+}
+
+func (s *Service) ListTopics(ctx context.Context, languageCode string) ([]dto.TopicResponse, error) {
+	topics, err := s.contentRepo.ListTopics(ctx, languageCode)
+	if err != nil {
+		logger.Error("content service: failed to list topics: language_code=%s err=%v", languageCode, err)
+		return nil, err
+	}
+
+	return topics, nil
+}
+
+func (s *Service) ListSubtopicsByTopicCode(ctx context.Context, topicCode, languageCode string) ([]dto.SubtopicResponse, error) {
+	subtopics, err := s.contentRepo.ListSubtopicsByTopicCode(ctx, topicCode, languageCode)
+	if err != nil {
+		logger.Error(
+			"content service: failed to list subtopics: topic_code=%s language_code=%s err=%v",
+			topicCode,
+			languageCode,
+			err,
+		)
+		return nil, err
+	}
+
+	return subtopics, nil
+}
+
+func (s *Service) GetLessonBySubtopicCode(ctx context.Context, subtopicCode, languageCode string) (*dto.LessonResponse, error) {
+	lesson, err := s.contentRepo.GetLessonBySubtopicCode(ctx, subtopicCode, languageCode)
+	if err != nil {
+		logger.Error(
+			"content service: failed to get lesson: subtopic_code=%s language_code=%s err=%v",
+			subtopicCode,
+			languageCode,
+			err,
+		)
+		return nil, err
+	}
+
+	return lesson, nil
+}

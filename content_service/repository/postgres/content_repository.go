@@ -1,0 +1,257 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+
+	"diplomaBackend/content_service/dto"
+	contentErrors "diplomaBackend/content_service/errors"
+	storagePostgres "diplomaBackend/internal/storage/postgres"
+
+	"github.com/jackc/pgx/v5"
+)
+
+type ContentRepository struct {
+	db storagePostgres.DBTX
+}
+
+func NewContentRepository(db storagePostgres.DBTX) *ContentRepository {
+	return &ContentRepository{db: db}
+}
+
+func (r *ContentRepository) ListTopics(ctx context.Context, languageCode string) ([]dto.TopicResponse, error) {
+	query := `
+		select
+			t.code,
+			t.level,
+			t.order_index,
+			tt.title,
+			tt.description
+		from topics t
+		join topic_translations tt
+			on tt.topic_id = t.id
+		   and tt.language_code = $1
+		where t.is_active = true
+		order by
+			case t.level
+				when 'beginner' then 1
+				when 'intermediate' then 2
+				when 'advanced' then 3
+			end,
+			t.order_index
+	`
+
+	rows, err := r.db.Query(ctx, query, languageCode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	topics := make([]dto.TopicResponse, 0)
+
+	for rows.Next() {
+		var item dto.TopicResponse
+		var description *string
+
+		if err := rows.Scan(
+			&item.Code,
+			&item.Level,
+			&item.OrderIndex,
+			&item.Title,
+			&description,
+		); err != nil {
+			return nil, err
+		}
+
+		if description != nil {
+			item.Description = *description
+		}
+
+		topics = append(topics, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return topics, nil
+}
+
+func (r *ContentRepository) ListSubtopicsByTopicCode(ctx context.Context, topicCode, languageCode string) ([]dto.SubtopicResponse, error) {
+	query := `
+		select
+			s.code,
+			s.order_index,
+			s.estimated_minutes,
+			st.title,
+			st.description
+		from subtopics s
+		join topics t
+			on t.id = s.topic_id
+		join subtopic_translations st
+			on st.subtopic_id = s.id
+		   and st.language_code = $2
+		where t.code = $1
+		  and t.is_active = true
+		  and s.is_active = true
+		order by s.order_index
+	`
+
+	rows, err := r.db.Query(ctx, query, topicCode, languageCode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	subtopics := make([]dto.SubtopicResponse, 0)
+
+	for rows.Next() {
+		var item dto.SubtopicResponse
+		var description *string
+
+		if err := rows.Scan(
+			&item.Code,
+			&item.OrderIndex,
+			&item.EstimatedMinutes,
+			&item.Title,
+			&description,
+		); err != nil {
+			return nil, err
+		}
+
+		if description != nil {
+			item.Description = *description
+		}
+
+		subtopics = append(subtopics, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(subtopics) == 0 {
+		existsQuery := `
+			select 1
+			from topics
+			where code = $1
+			  and is_active = true
+		`
+
+		var exists int
+		if err := r.db.QueryRow(ctx, existsQuery, topicCode).Scan(&exists); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, contentErrors.ErrTopicNotFound
+			}
+			return nil, err
+		}
+	}
+
+	return subtopics, nil
+}
+
+func (r *ContentRepository) GetLessonBySubtopicCode(ctx context.Context, subtopicCode, languageCode string) (*dto.LessonResponse, error) {
+	lessonQuery := `
+		select
+			l.id,
+			t.code,
+			tt.title,
+			t.level,
+			s.code,
+			st.title
+		from lessons l
+		join subtopics s
+			on s.id = l.subtopic_id
+		join topics t
+			on t.id = s.topic_id
+		join topic_translations tt
+			on tt.topic_id = t.id
+		   and tt.language_code = $2
+		join subtopic_translations st
+			on st.subtopic_id = s.id
+		   and st.language_code = $2
+		where s.code = $1
+		  and t.is_active = true
+		  and s.is_active = true
+		  and l.is_published = true
+	`
+
+	var lesson dto.LessonResponse
+
+	if err := r.db.QueryRow(ctx, lessonQuery, subtopicCode, languageCode).Scan(
+		&lesson.LessonID,
+		&lesson.TopicCode,
+		&lesson.TopicTitle,
+		&lesson.TopicLevel,
+		&lesson.SubtopicCode,
+		&lesson.SubtopicTitle,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, contentErrors.ErrLessonNotFound
+		}
+		return nil, err
+	}
+
+	stepsQuery := `
+		select
+			ls.id,
+			ls.step_type,
+			ls.order_index,
+			lst.title,
+			lst.content,
+			ls.interactive_type,
+			lst.interactive_content
+		from lesson_steps ls
+		join lesson_step_translations lst
+			on lst.lesson_step_id = ls.id
+		   and lst.language_code = $2
+		where ls.lesson_id = $1
+		order by ls.order_index
+	`
+
+	rows, err := r.db.Query(ctx, stepsQuery, lesson.LessonID, languageCode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var steps []dto.LessonStepResponse
+
+	for rows.Next() {
+		var step dto.LessonStepResponse
+		var title *string
+		var content []byte
+		var interactiveType *string
+		var interactiveContent []byte
+
+		if err := rows.Scan(
+			&step.ID,
+			&step.StepType,
+			&step.OrderIndex,
+			&title,
+			&content,
+			&interactiveType,
+			&interactiveContent,
+		); err != nil {
+			return nil, err
+		}
+
+		step.Title = title
+		step.Content = content
+		step.InteractiveType = interactiveType
+
+		if interactiveContent != nil {
+			step.InteractiveContent = interactiveContent
+		}
+
+		steps = append(steps, step)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	lesson.Steps = steps
+
+	return &lesson, nil
+}

@@ -1,18 +1,24 @@
 package app
 
 import (
-	userProfileHandler "diplomaBackend/user_profile_service/handler"
 	"net/http"
 
-	"diplomaBackend/authorization_service/handler"
+	assessmentHandler "diplomaBackend/assessment_service/handler"
+	assessmentPostgres "diplomaBackend/assessment_service/repository/postgres"
+	assessmentService "diplomaBackend/assessment_service/service/assessment"
+	authHandler "diplomaBackend/authorization_service/handler"
 	authPostgres "diplomaBackend/authorization_service/repository/postgres"
 	authService "diplomaBackend/authorization_service/service/auth"
 	googleverifier "diplomaBackend/authorization_service/service/google"
 	jwtservice "diplomaBackend/authorization_service/service/jwt"
 	passwordservice "diplomaBackend/authorization_service/service/password"
+	contentHandler "diplomaBackend/content_service/handler"
+	contentPostgres "diplomaBackend/content_service/repository/postgres"
+	contentService "diplomaBackend/content_service/service/content"
 	"diplomaBackend/internal/config"
 	"diplomaBackend/internal/http/middleware"
 	storagePostgres "diplomaBackend/internal/storage/postgres"
+	userProfileHandler "diplomaBackend/user_profile_service/handler"
 	userProfilePostgres "diplomaBackend/user_profile_service/repository/postgres"
 	userProfileService "diplomaBackend/user_profile_service/service/user"
 
@@ -37,6 +43,11 @@ func New(cfg *config.Config) *App {
 	preferredTopicRepo := userProfilePostgres.NewPreferredTopicRepository(db)
 	settingsRepo := userProfilePostgres.NewSettingsRepository(db)
 
+	contentRepo := contentPostgres.NewContentRepository(db)
+
+	assessmentRepo := assessmentPostgres.NewAssessmentRepository(db)
+	assessmentTxManager := assessmentPostgres.NewTxManager(db)
+
 	profileTxManager := userProfilePostgres.NewTxManager(db)
 
 	profileSvc := userProfileService.NewService(
@@ -46,7 +57,10 @@ func New(cfg *config.Config) *App {
 		profileTxManager,
 	)
 
+	contentSvc := contentService.NewService(contentRepo)
+
 	profileHandler := userProfileHandler.NewHandler(profileSvc)
+	contentHandler := contentHandler.NewHandler(contentSvc)
 
 	passwordSvc := passwordservice.NewService()
 	jwtSvc := jwtservice.NewService(cfg.JWTAccessSecret, cfg.AccessTokenTTL)
@@ -64,10 +78,22 @@ func New(cfg *config.Config) *App {
 		cfg.RefreshTokenTTL,
 	)
 
-	authHandler := handler.NewAuthHandler(authSvc)
+	assessmentSvc := assessmentService.NewService(
+		assessmentRepo,
+		assessmentTxManager,
+	)
+
+	authHandler := authHandler.NewAuthHandler(authSvc)
+	assessmentHandler := assessmentHandler.NewHandler(assessmentSvc)
 	authMiddleware := middleware.AuthMiddleware(jwtSvc)
 
-	router := middleware.CORS(NewRouter(authHandler, profileHandler, authMiddleware))
+	router := middleware.CORS(NewRouter(
+		authHandler,
+		profileHandler,
+		contentHandler,
+		assessmentHandler,
+		authMiddleware,
+	))
 
 	return &App{
 		db:     db,

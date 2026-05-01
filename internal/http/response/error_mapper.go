@@ -1,11 +1,12 @@
 package response
 
 import (
+	assessmentErrors "diplomaBackend/assessment_service/errors"
+	authErrors "diplomaBackend/authorization_service/errors"
+	contentErrors "diplomaBackend/content_service/errors"
 	profileErrors "diplomaBackend/user_profile_service/errors"
 	"errors"
 	"net/http"
-
-	authErrors "diplomaBackend/authorization_service/errors"
 )
 
 type AppError struct {
@@ -33,16 +34,35 @@ func MapError(err error) AppError {
 		errors.Is(err, authErrors.ErrUsernameBadSymbols),
 		errors.Is(err, authErrors.ErrUsernameSameAsCurrent),
 		errors.Is(err, authErrors.ErrInvalidUsername),
-		errors.Is(err, authErrors.ErrPasswordSameAsCurrent):
+		errors.Is(err, authErrors.ErrPasswordSameAsCurrent),
+
+		errors.Is(err, profileErrors.ErrPreferredTopicsRequired),
+		errors.Is(err, profileErrors.ErrInvalidFinancialLiteracyLevel),
+		errors.Is(err, profileErrors.ErrInvalidPracticalExperience),
+		errors.Is(err, profileErrors.ErrInvalidLearningGoal),
+		errors.Is(err, profileErrors.ErrInvalidPreferredLanguage),
+		errors.Is(err, profileErrors.ErrInvalidTimeCommitment),
+		errors.Is(err, profileErrors.ErrInvalidPreferredTopic),
+		errors.Is(err, profileErrors.ErrInvalidTheme),
+		errors.Is(err, profileErrors.ErrInvalidReminderTime),
+
+		errors.Is(err, contentErrors.ErrInvalidLanguageCode),
+		errors.Is(err, assessmentErrors.ErrInvalidLanguageCode),
+		errors.Is(err, assessmentErrors.ErrInvalidQuizID),
+		errors.Is(err, assessmentErrors.ErrInvalidAttemptID),
+		errors.Is(err, assessmentErrors.ErrInvalidQuestionID),
+		errors.Is(err, assessmentErrors.ErrInvalidOptionID),
+		errors.Is(err, assessmentErrors.ErrIncompleteQuizAttempt),
+		errors.Is(err, assessmentErrors.ErrDuplicateQuestion),
+		errors.Is(err, assessmentErrors.ErrEmptySelectedOptions),
+		errors.Is(err, assessmentErrors.ErrInvalidSelectedCount),
+		errors.Is(err, assessmentErrors.ErrAttemptAlreadyCompleted),
+		errors.Is(err, assessmentErrors.ErrAttemptNotInProgress),
+		errors.Is(err, assessmentErrors.ErrInvalidAttemptQuestion),
+		errors.Is(err, assessmentErrors.ErrNotEnoughQuizQuestions),
+		errors.Is(err, assessmentErrors.ErrAttemptExpired):
 		return AppError{
 			Status: http.StatusBadRequest,
-			Code:   err.Error(),
-		}
-
-	case errors.Is(err, authErrors.ErrEmailAlreadyExists),
-		errors.Is(err, authErrors.ErrGoogleEmailAlreadyExists):
-		return AppError{
-			Status: http.StatusConflict,
 			Code:   err.Error(),
 		}
 
@@ -65,40 +85,27 @@ func MapError(err error) AppError {
 		}
 
 	case errors.Is(err, authErrors.ErrUserNotFound),
-		errors.Is(err, authErrors.ErrOAuthAccountNotFound):
+		errors.Is(err, authErrors.ErrOAuthAccountNotFound),
+
+		errors.Is(err, profileErrors.ErrProfileNotFound),
+		errors.Is(err, profileErrors.ErrSettingsNotFound),
+
+		errors.Is(err, contentErrors.ErrTopicNotFound),
+		errors.Is(err, contentErrors.ErrSubtopicNotFound),
+		errors.Is(err, contentErrors.ErrLessonNotFound),
+		errors.Is(err, assessmentErrors.ErrQuizNotFound),
+		errors.Is(err, assessmentErrors.ErrAttemptNotFound),
+		errors.Is(err, assessmentErrors.ErrQuizNotFound),
+		errors.Is(err, assessmentErrors.ErrAttemptNotFound):
 		return AppError{
 			Status: http.StatusNotFound,
 			Code:   err.Error(),
 		}
 
-	case errors.Is(err, profileErrors.ErrProfileNotFound):
+	case errors.Is(err, authErrors.ErrEmailAlreadyExists),
+		errors.Is(err, authErrors.ErrGoogleEmailAlreadyExists):
 		return AppError{
-			Status: http.StatusNotFound,
-			Code:   err.Error(),
-		}
-
-	case errors.Is(err, profileErrors.ErrSettingsNotFound):
-		return AppError{
-			Status: http.StatusNotFound,
-			Code:   err.Error(),
-		}
-
-	case errors.Is(err, profileErrors.ErrPreferredTopicsRequired):
-		return AppError{
-			Status: http.StatusBadRequest,
-			Code:   err.Error(),
-		}
-
-	case errors.Is(err, profileErrors.ErrInvalidFinancialLiteracyLevel),
-		errors.Is(err, profileErrors.ErrInvalidPracticalExperience),
-		errors.Is(err, profileErrors.ErrInvalidLearningGoal),
-		errors.Is(err, profileErrors.ErrInvalidPreferredLanguage),
-		errors.Is(err, profileErrors.ErrInvalidTimeCommitment),
-		errors.Is(err, profileErrors.ErrInvalidPreferredTopic),
-		errors.Is(err, profileErrors.ErrInvalidTheme),
-		errors.Is(err, profileErrors.ErrInvalidReminderTime):
-		return AppError{
-			Status: http.StatusBadRequest,
+			Status: http.StatusConflict,
 			Code:   err.Error(),
 		}
 
@@ -107,7 +114,7 @@ func MapError(err error) AppError {
 			Status: http.StatusTooManyRequests,
 			Code:   err.Error(),
 		}
-		
+
 	default:
 		return AppError{
 			Status: http.StatusInternalServerError,

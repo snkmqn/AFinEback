@@ -1,6 +1,8 @@
 package app
 
 import (
+	assessmentHandler "diplomaBackend/assessment_service/handler"
+	contentHandler "diplomaBackend/content_service/handler"
 	"net/http"
 
 	"diplomaBackend/authorization_service/handler"
@@ -10,6 +12,8 @@ import (
 func NewRouter(
 	authHandler *handler.AuthHandler,
 	profileHandler *profileHandler.Handler,
+	contentHandler *contentHandler.Handler,
+	assessmentHandler *assessmentHandler.Handler,
 	authMiddleware func(http.Handler) http.Handler,
 ) http.Handler {
 	apiMux := http.NewServeMux()
@@ -28,6 +32,16 @@ func NewRouter(
 	apiMux.Handle("PUT /profile/me", authMiddleware(http.HandlerFunc(profileHandler.UpsertProfile)))
 	apiMux.Handle("GET /profile/settings", authMiddleware(http.HandlerFunc(profileHandler.GetSettings)))
 	apiMux.Handle("PATCH /profile/settings", authMiddleware(http.HandlerFunc(profileHandler.UpdateSettings)))
+
+	apiMux.Handle("GET /content/topics", authMiddleware(http.HandlerFunc(contentHandler.ListTopics)))
+	apiMux.Handle("GET /content/topics/{topicCode}/subtopics", authMiddleware(http.HandlerFunc(contentHandler.ListSubtopicsByTopicCode)))
+	apiMux.Handle("GET /content/subtopics/{subtopicCode}/lesson", authMiddleware(http.HandlerFunc(contentHandler.GetLessonBySubtopicCode)))
+
+	apiMux.Handle("GET /assessment/quizzes/{quizId}", authMiddleware(http.HandlerFunc(assessmentHandler.GetQuizByID)))
+	apiMux.Handle("POST /assessment/quizzes/{quizId}/start", authMiddleware(http.HandlerFunc(assessmentHandler.StartQuiz)))
+	apiMux.Handle("POST /assessment/attempts/{attemptId}/submit", authMiddleware(http.HandlerFunc(assessmentHandler.SubmitAttempt)))
+	apiMux.Handle("GET /assessment/quizzes/{quizId}/latest-attempt", authMiddleware(http.HandlerFunc(assessmentHandler.GetLatestAttemptByQuizID)))
+	apiMux.Handle("GET /assessment/attempts/{attemptId}", authMiddleware(http.HandlerFunc(assessmentHandler.GetAttemptByID)))
 
 	rootMux := http.NewServeMux()
 	rootMux.Handle("/api/", http.StripPrefix("/api", apiMux))
