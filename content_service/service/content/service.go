@@ -29,7 +29,7 @@ func (s *Service) ListTopics(ctx context.Context, languageCode string) ([]dto.To
 	return topics, nil
 }
 
-func (s *Service) ListSubtopicsByTopicCode(ctx context.Context, topicCode, languageCode string) ([]dto.SubtopicResponse, error) {
+func (s *Service) ListSubtopicsByTopicCode(ctx context.Context, topicCode, languageCode string) (*dto.TopicSubtopicsResponse, error) {
 	subtopics, err := s.contentRepo.ListSubtopicsByTopicCode(ctx, topicCode, languageCode)
 	if err != nil {
 		logger.Error(
@@ -41,7 +41,21 @@ func (s *Service) ListSubtopicsByTopicCode(ctx context.Context, topicCode, langu
 		return nil, err
 	}
 
-	return subtopics, nil
+	finalQuiz, err := s.contentRepo.GetTopicFinalQuizByTopicCode(ctx, topicCode, languageCode)
+	if err != nil {
+		logger.Error(
+			"content service: failed to get topic final quiz: topic_code=%s language_code=%s err=%v",
+			topicCode,
+			languageCode,
+			err,
+		)
+		return nil, err
+	}
+
+	return &dto.TopicSubtopicsResponse{
+		Subtopics: subtopics,
+		FinalQuiz: finalQuiz,
+	}, nil
 }
 
 func (s *Service) GetLessonBySubtopicCode(ctx context.Context, subtopicCode, languageCode string) (*dto.LessonResponse, error) {

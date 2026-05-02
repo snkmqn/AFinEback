@@ -150,6 +150,43 @@ func (r *ContentRepository) ListSubtopicsByTopicCode(ctx context.Context, topicC
 	return subtopics, nil
 }
 
+func (r *ContentRepository) GetTopicFinalQuizByTopicCode(ctx context.Context, topicCode, languageCode string) (*dto.TopicFinalQuizResponse, error) {
+	query := `
+		select
+			q.id,
+			q.topic_code,
+			q.quiz_type,
+			qt.title,
+			q.passing_score,
+			q.time_limit_seconds
+		from quizzes q
+		join quiz_translations qt
+			on qt.quiz_id = q.id
+		   and qt.language_code = $2
+		where q.topic_code = $1
+		  and q.quiz_type = 'topic_final_quiz'
+		  and q.is_active = true
+	`
+
+	var item dto.TopicFinalQuizResponse
+
+	if err := r.db.QueryRow(ctx, query, topicCode, languageCode).Scan(
+		&item.QuizID,
+		&item.TopicCode,
+		&item.QuizType,
+		&item.Title,
+		&item.PassingScore,
+		&item.TimeLimitSeconds,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &item, nil
+}
+
 func (r *ContentRepository) GetLessonBySubtopicCode(ctx context.Context, subtopicCode, languageCode string) (*dto.LessonResponse, error) {
 	lessonQuery := `
 		select
