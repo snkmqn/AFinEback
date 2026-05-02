@@ -18,6 +18,20 @@ type SubtopicResponse struct {
 	Description      string `json:"description,omitempty"`
 }
 
+type TopicFinalQuizResponse struct {
+	QuizID           int64  `json:"quizId"`
+	TopicCode        string `json:"topicCode"`
+	QuizType         string `json:"quizType"`
+	Title            string `json:"title"`
+	PassingScore     int    `json:"passingScore"`
+	TimeLimitSeconds *int   `json:"timeLimitSeconds,omitempty"`
+}
+
+type TopicSubtopicsResponse struct {
+	Subtopics []SubtopicResponse      `json:"subtopics"`
+	FinalQuiz *TopicFinalQuizResponse `json:"finalQuiz,omitempty"`
+}
+
 type LessonStepResponse struct {
 	ID                 int64           `json:"id"`
 	StepType           string          `json:"stepType"`
