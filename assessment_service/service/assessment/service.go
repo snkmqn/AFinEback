@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	adaptationService "diplomaBackend/adaptation_service/service"
 	"diplomaBackend/assessment_service/dto"
 	assessmentErrors "diplomaBackend/assessment_service/errors"
 	"diplomaBackend/assessment_service/model"
@@ -16,20 +17,23 @@ import (
 )
 
 type Service struct {
-	assessmentRepo  repository.AssessmentRepository
-	txManager       repository.TxManager
-	progressService progressService.ProgressService
+	assessmentRepo    repository.AssessmentRepository
+	txManager         repository.TxManager
+	progressService   progressService.ProgressService
+	adaptationService adaptationService.AdaptationService
 }
 
 func NewService(
 	assessmentRepo repository.AssessmentRepository,
 	txManager repository.TxManager,
 	progressService progressService.ProgressService,
+	adaptationService adaptationService.AdaptationService,
 ) service.AssessmentService {
 	return &Service{
-		assessmentRepo:  assessmentRepo,
-		txManager:       txManager,
-		progressService: progressService,
+		assessmentRepo:    assessmentRepo,
+		txManager:         txManager,
+		progressService:   progressService,
+		adaptationService: adaptationService,
 	}
 }
 
@@ -223,9 +227,36 @@ func (s *Service) SubmitAttempt(ctx context.Context, input service.SubmitQuizInp
 			ScorePercent:   float64(scorePercent),
 			CompletedAt:    time.Now(),
 		})
+
 		if err != nil {
 			logger.Error("assessment service: failed to update progress: user_id=%d attempt_id=%d err=%v", input.UserID, input.AttemptID, err)
 			return nil, err
+		}
+	}
+
+	var reinforcement *dto.ReinforcementResultResponse
+
+	if s.adaptationService != nil {
+		adaptationResult, err := s.adaptationService.ProcessQuizResult(ctx, adaptationService.ProcessQuizResultInput{
+			UserID:       input.UserID,
+			QuizID:       attemptData.QuizID,
+			AttemptID:    input.AttemptID,
+			QuizType:     attemptData.QuizType,
+			TopicCode:    attemptData.TopicCode,
+			SubtopicCode: attemptData.SubtopicCode,
+			ScorePercent: float64(scorePercent),
+		})
+		if err != nil {
+			logger.Error("assessment service: failed to process adaptation: user_id=%d attempt_id=%d err=%v", input.UserID, input.AttemptID, err)
+		} else if adaptationResult != nil {
+			reinforcement = &dto.ReinforcementResultResponse{
+				NeedsReinforcement: adaptationResult.NeedsReinforcement,
+				Prediction:         adaptationResult.Prediction,
+				Probability:        adaptationResult.Probability,
+				Confidence:         adaptationResult.Confidence,
+				DecisionSource:     adaptationResult.DecisionSource,
+				ModelName:          adaptationResult.ModelName,
+			}
 		}
 	}
 
@@ -245,6 +276,7 @@ func (s *Service) SubmitAttempt(ctx context.Context, input service.SubmitQuizInp
 		Passed:         completedAttempt.Passed,
 		XPForScore:     completedAttempt.XPForScore,
 		SubmittedAt:    completedAttempt.SubmittedAt,
+		Reinforcement:  reinforcement,
 	}, nil
 }
 

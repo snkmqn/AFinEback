@@ -15,6 +15,7 @@ type Config struct {
 	GoogleClientID  string
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
+	MLServiceURL    string
 }
 
 func Load() *Config {
@@ -40,6 +41,7 @@ func Load() *Config {
 		GoogleClientID:  os.Getenv("GOOGLE_CLIENT_ID"),
 		AccessTokenTTL:  accessTokenTTL,
 		RefreshTokenTTL: refreshTokenTTL,
+		MLServiceURL:    os.Getenv("ML_SERVICE_URL"),
 	}
 
 	validate(cfg)
@@ -65,5 +67,8 @@ func validate(cfg *Config) {
 	}
 	if cfg.RefreshTokenTTL <= 0 {
 		log.Fatal("REFRESH_TOKEN_TTL must be greater than 0")
+	}
+	if cfg.MLServiceURL == "" {
+		log.Println("ML_SERVICE_URL is empty, adaptation ML calls will be disabled")
 	}
 }

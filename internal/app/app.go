@@ -3,6 +3,8 @@ package app
 import (
 	"net/http"
 
+	adaptationPostgres "diplomaBackend/adaptation_service/repository/postgres"
+	adaptationService "diplomaBackend/adaptation_service/service/adaptation"
 	assessmentHandler "diplomaBackend/assessment_service/handler"
 	assessmentPostgres "diplomaBackend/assessment_service/repository/postgres"
 	assessmentService "diplomaBackend/assessment_service/service/assessment"
@@ -17,6 +19,7 @@ import (
 	contentService "diplomaBackend/content_service/service/content"
 	"diplomaBackend/internal/config"
 	"diplomaBackend/internal/http/middleware"
+	"diplomaBackend/internal/mlclient"
 	storagePostgres "diplomaBackend/internal/storage/postgres"
 	progressHandler "diplomaBackend/progress_service/handler"
 	progressPostgres "diplomaBackend/progress_service/repository/postgres"
@@ -52,6 +55,15 @@ func New(cfg *config.Config) *App {
 	profileTxManager := userProfilePostgres.NewTxManager(db)
 	progressRepo := progressPostgres.NewProgressRepository(db)
 
+	adaptationRepo := adaptationPostgres.NewAdaptationRepository(db)
+
+	var mlClient mlclient.Client
+	if cfg.MLServiceURL != "" {
+		mlClient = mlclient.NewHTTPClient(cfg.MLServiceURL)
+	}
+
+	adaptationSvc := adaptationService.NewService(adaptationRepo, mlClient)
+
 	profileSvc := userProfileService.NewService(
 		profileRepo,
 		preferredTopicRepo,
@@ -81,8 +93,9 @@ func New(cfg *config.Config) *App {
 		assessmentRepo,
 		assessmentTxManager,
 		progressSvc,
+		adaptationSvc,
 	)
-
+	
 	profileHandler := userProfileHandler.NewHandler(profileSvc)
 	contentHandler := contentHandler.NewHandler(contentSvc)
 	progressHandler := progressHandler.NewHandler(progressSvc)

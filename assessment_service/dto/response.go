@@ -26,15 +26,16 @@ type OptionResponse struct {
 }
 
 type SubmitQuizResponse struct {
-	AttemptID      int64     `json:"attempt_id"`
-	QuizID         int64     `json:"quiz_id"`
-	ScorePercent   int       `json:"score_percent"`
-	TotalQuestions int       `json:"total_questions"`
-	CorrectAnswers int       `json:"correct_answers"`
-	WrongAnswers   int       `json:"wrong_answers"`
-	Passed         bool      `json:"passed"`
-	XPForScore     int       `json:"xp_for_score"`
-	SubmittedAt    time.Time `json:"submitted_at"`
+	AttemptID      int64                        `json:"attempt_id"`
+	QuizID         int64                        `json:"quiz_id"`
+	ScorePercent   int                          `json:"score_percent"`
+	TotalQuestions int                          `json:"total_questions"`
+	CorrectAnswers int                          `json:"correct_answers"`
+	WrongAnswers   int                          `json:"wrong_answers"`
+	Passed         bool                         `json:"passed"`
+	XPForScore     int                          `json:"xp_for_score"`
+	SubmittedAt    time.Time                    `json:"submitted_at"`
+	Reinforcement  *ReinforcementResultResponse `json:"reinforcement,omitempty"`
 }
 
 type LatestAttemptResponse struct {
@@ -97,4 +98,13 @@ type QuizResponse struct {
 	PassingScore     int                `json:"passing_score"`
 	TimeLimitSeconds *int               `json:"time_limit_seconds"`
 	Questions        []QuestionResponse `json:"questions"`
+}
+
+type ReinforcementResultResponse struct {
+	NeedsReinforcement bool    `json:"needs_reinforcement"`
+	Prediction         int     `json:"prediction"`
+	Probability        float64 `json:"probability"`
+	Confidence         float64 `json:"confidence"`
+	DecisionSource     string  `json:"decision_source"`
+	ModelName          string  `json:"model_name,omitempty"`
 }
