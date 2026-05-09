@@ -16,6 +16,7 @@ type SubtopicResponse struct {
 	EstimatedMinutes *int   `json:"estimatedMinutes,omitempty"`
 	Title            string `json:"title"`
 	Description      string `json:"description,omitempty"`
+	QuizID           *int64 `json:"quizId,omitempty"`
 }
 
 type TopicFinalQuizResponse struct {

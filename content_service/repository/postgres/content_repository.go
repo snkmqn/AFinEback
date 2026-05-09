@@ -79,23 +79,28 @@ func (r *ContentRepository) ListTopics(ctx context.Context, languageCode string)
 
 func (r *ContentRepository) ListSubtopicsByTopicCode(ctx context.Context, topicCode, languageCode string) ([]dto.SubtopicResponse, error) {
 	query := `
-		select
-			s.code,
-			s.order_index,
-			s.estimated_minutes,
-			st.title,
-			st.description
-		from subtopics s
-		join topics t
-			on t.id = s.topic_id
-		join subtopic_translations st
-			on st.subtopic_id = s.id
-		   and st.language_code = $2
-		where t.code = $1
-		  and t.is_active = true
-		  and s.is_active = true
-		order by s.order_index
-	`
+	select
+		s.code,
+		s.order_index,
+		s.estimated_minutes,
+		st.title,
+		st.description,
+		q.id as quiz_id
+	from subtopics s
+	join topics t
+		on t.id = s.topic_id
+	join subtopic_translations st
+		on st.subtopic_id = s.id
+	   and st.language_code = $2
+	left join quizzes q
+		on q.subtopic_code = s.code
+	   and q.quiz_type = 'subtopic_quiz'
+	   and q.is_active = true
+	where t.code = $1
+	  and t.is_active = true
+	  and s.is_active = true
+	order by s.order_index
+`
 
 	rows, err := r.db.Query(ctx, query, topicCode, languageCode)
 	if err != nil {
@@ -115,6 +120,7 @@ func (r *ContentRepository) ListSubtopicsByTopicCode(ctx context.Context, topicC
 			&item.EstimatedMinutes,
 			&item.Title,
 			&description,
+			&item.QuizID,
 		); err != nil {
 			return nil, err
 		}
