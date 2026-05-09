@@ -86,24 +86,18 @@ func (s *Service) UpsertProfile(ctx context.Context, input service.UpsertProfile
 		settingsRepo repository.SettingsRepository,
 	) error {
 		existingProfile, err := profileRepo.GetByUserID(ctx, input.UserID)
-		if err != nil {
-			if errors.Is(err, profileErrors.ErrProfileNotFound) {
-				if err := profileRepo.Create(ctx, profile); err != nil {
-					logger.Error("profile service: failed to create profile: user_id=%d err=%v", input.UserID, err)
-					return err
-				}
-			} else {
-				logger.Error("profile service: failed to get profile before upsert: user_id=%d err=%v", input.UserID, err)
-				return err
-			}
-		} else {
-			profile.ID = existingProfile.ID
-			profile.CreatedAt = existingProfile.CreatedAt
+		if err == nil && existingProfile != nil {
+			return profileErrors.ErrProfileAlreadyCompleted
+		}
 
-			if err := profileRepo.Update(ctx, profile); err != nil {
-				logger.Error("profile service: failed to update profile: user_id=%d err=%v", input.UserID, err)
-				return err
-			}
+		if err != nil && !errors.Is(err, profileErrors.ErrProfileNotFound) {
+			logger.Error("profile service: failed to get profile before onboarding: user_id=%d err=%v", input.UserID, err)
+			return err
+		}
+
+		if err := profileRepo.Create(ctx, profile); err != nil {
+			logger.Error("profile service: failed to create profile: user_id=%d err=%v", input.UserID, err)
+			return err
 		}
 
 		if err := preferredTopicRepo.ReplaceByUserID(ctx, input.UserID, input.PreferredTopics); err != nil {
@@ -126,17 +120,19 @@ func (s *Service) UpsertProfile(ctx context.Context, input service.UpsertProfile
 					logger.Error("profile service: failed to create default settings after onboarding: user_id=%d err=%v", input.UserID, err)
 					return err
 				}
-			} else {
-				logger.Error("profile service: failed to get settings during profile upsert: user_id=%d err=%v", input.UserID, err)
-				return err
-			}
-		} else {
-			existingSettings.LanguageCode = input.PreferredLanguage
 
-			if err := settingsRepo.Update(ctx, existingSettings); err != nil {
-				logger.Error("profile service: failed to sync settings language from questionnaire: user_id=%d err=%v", input.UserID, err)
-				return err
+				return nil
 			}
+
+			logger.Error("profile service: failed to get settings during onboarding: user_id=%d err=%v", input.UserID, err)
+			return err
+		}
+
+		existingSettings.LanguageCode = input.PreferredLanguage
+
+		if err := settingsRepo.Update(ctx, existingSettings); err != nil {
+			logger.Error("profile service: failed to sync settings language after onboarding: user_id=%d err=%v", input.UserID, err)
+			return err
 		}
 
 		return nil
@@ -281,13 +277,6 @@ func (s *Service) UpdateSettings(ctx context.Context, input service.UpdateSettin
 
 			if err := settingsRepo.Update(ctx, settings); err != nil {
 				logger.Error("profile service: failed to update settings: user_id=%d err=%v", settings.UserID, err)
-				return err
-			}
-		}
-
-		if input.LanguageCode != nil {
-			if err := profileRepo.UpdatePreferredLanguage(ctx, input.UserID, *input.LanguageCode); err != nil {
-				logger.Error("profile service: failed to sync preferred language to profile: user_id=%d err=%v", input.UserID, err)
 				return err
 			}
 		}

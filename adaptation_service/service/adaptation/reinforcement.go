@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"diplomaBackend/adaptation_service/dto"
+	adaptationErrors "diplomaBackend/adaptation_service/errors"
 	"diplomaBackend/adaptation_service/model"
 	"diplomaBackend/adaptation_service/repository"
 	"diplomaBackend/adaptation_service/service"
@@ -12,27 +13,46 @@ import (
 )
 
 type Service struct {
-	adaptationRepo repository.AdaptationRepository
-	mlClient       mlclient.Client
+	adaptationRepo        repository.AdaptationRepository
+	reinforcementMLClient mlclient.Client
+	nextLessonMLClient    mlclient.Client
 }
+
+const (
+	quizTypeSubtopicQuiz   = "subtopic_quiz"
+	quizTypeTopicFinalQuiz = "topic_final_quiz"
+
+	subtopicPassedThreshold      = 70.0
+	topicFinalPassedThreshold    = 75.0
+	topicAvgLast3PassedThreshold = 70.0
+)
 
 func NewService(
 	adaptationRepo repository.AdaptationRepository,
-	mlClient mlclient.Client,
+	reinforcementMLClient mlclient.Client,
+	nextLessonMLClient mlclient.Client,
 ) service.AdaptationService {
 	return &Service{
-		adaptationRepo: adaptationRepo,
-		mlClient:       mlClient,
+		adaptationRepo:        adaptationRepo,
+		reinforcementMLClient: reinforcementMLClient,
+		nextLessonMLClient:    nextLessonMLClient,
 	}
 }
 
 func (s *Service) ProcessQuizResult(ctx context.Context, input service.ProcessQuizResultInput) (*dto.ReinforcementResponse, error) {
+	if input.UserID <= 0 {
+		return nil, adaptationErrors.ErrInvalidUserID
+	}
+
+	if input.AttemptID <= 0 {
+		return nil, adaptationErrors.ErrInvalidAttemptID
+	}
 	features, err := s.adaptationRepo.GetReinforcementFeatures(ctx, input.UserID, input.AttemptID)
 	if err != nil {
 		return nil, err
 	}
 
-	if features.QuizScore >= 75 && features.AvgLast3Scores >= 70 {
+	if isStrongResult(features) {
 		result := &dto.ReinforcementResponse{
 			NeedsReinforcement: false,
 			Prediction:         0,
@@ -54,7 +74,7 @@ func (s *Service) ProcessQuizResult(ctx context.Context, input service.ProcessQu
 		return result, nil
 	}
 
-	if s.mlClient == nil {
+	if s.reinforcementMLClient == nil {
 		result := fallbackReinforcement(features)
 
 		if err := s.savePrediction(ctx, input, features, result); err != nil {
@@ -69,7 +89,7 @@ func (s *Service) ProcessQuizResult(ctx context.Context, input service.ProcessQu
 		return result, nil
 	}
 
-	mlResult, err := s.mlClient.PredictReinforcement(ctx, mlclient.ReinforcementPredictRequest{
+	mlResult, err := s.reinforcementMLClient.PredictReinforcement(ctx, mlclient.ReinforcementPredictRequest{
 		UserLevel:              features.UserLevel,
 		LearningGoal:           features.LearningGoal,
 		TopicCode:              features.TopicCode,
@@ -126,12 +146,26 @@ func (s *Service) ProcessQuizResult(ctx context.Context, input service.ProcessQu
 	return result, nil
 }
 
-func fallbackReinforcement(features *model.ReinforcementFeatures) *dto.ReinforcementResponse {
-	needs := true
-
-	if features.QuizScore >= 75 && features.AvgLast3Scores >= 70 {
-		needs = false
+func isStrongResult(features *model.ReinforcementFeatures) bool {
+	if features == nil {
+		return false
 	}
+
+	switch features.QuizType {
+	case quizTypeTopicFinalQuiz:
+		return features.QuizScore >= topicFinalPassedThreshold &&
+			features.AvgLast3Scores >= topicAvgLast3PassedThreshold
+
+	case quizTypeSubtopicQuiz:
+		return features.QuizScore >= subtopicPassedThreshold
+
+	default:
+		return features.QuizScore >= subtopicPassedThreshold
+	}
+}
+
+func fallbackReinforcement(features *model.ReinforcementFeatures) *dto.ReinforcementResponse {
+	needs := !isStrongResult(features)
 
 	prediction := 0
 	if needs {

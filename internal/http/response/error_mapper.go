@@ -1,9 +1,11 @@
 package response
 
 import (
+	adaptationErrors "diplomaBackend/adaptation_service/errors"
 	assessmentErrors "diplomaBackend/assessment_service/errors"
 	authErrors "diplomaBackend/authorization_service/errors"
 	contentErrors "diplomaBackend/content_service/errors"
+	progressErrors "diplomaBackend/progress_service/errors"
 	profileErrors "diplomaBackend/user_profile_service/errors"
 	"errors"
 	"net/http"
@@ -47,6 +49,16 @@ func MapError(err error) AppError {
 		errors.Is(err, profileErrors.ErrInvalidReminderTime),
 
 		errors.Is(err, contentErrors.ErrInvalidLanguageCode),
+
+		errors.Is(err, progressErrors.ErrInvalidUserID),
+		errors.Is(err, progressErrors.ErrInvalidQuizCode),
+		errors.Is(err, progressErrors.ErrInvalidMaxScorePoints),
+		errors.Is(err, progressErrors.ErrInvalidScorePoints),
+		errors.Is(err, progressErrors.ErrInvalidScorePercent),
+
+		errors.Is(err, adaptationErrors.ErrInvalidUserID),
+		errors.Is(err, adaptationErrors.ErrInvalidAttemptID),
+
 		errors.Is(err, assessmentErrors.ErrInvalidLanguageCode),
 		errors.Is(err, assessmentErrors.ErrInvalidQuizID),
 		errors.Is(err, assessmentErrors.ErrInvalidAttemptID),
@@ -60,7 +72,9 @@ func MapError(err error) AppError {
 		errors.Is(err, assessmentErrors.ErrAttemptNotInProgress),
 		errors.Is(err, assessmentErrors.ErrInvalidAttemptQuestion),
 		errors.Is(err, assessmentErrors.ErrNotEnoughQuizQuestions),
-		errors.Is(err, assessmentErrors.ErrAttemptExpired):
+		errors.Is(err, assessmentErrors.ErrAttemptExpired),
+		errors.Is(err, adaptationErrors.ErrInvalidUserID),
+		errors.Is(err, adaptationErrors.ErrInvalidAttemptID):
 		return AppError{
 			Status: http.StatusBadRequest,
 			Code:   err.Error(),
@@ -93,17 +107,24 @@ func MapError(err error) AppError {
 		errors.Is(err, contentErrors.ErrTopicNotFound),
 		errors.Is(err, contentErrors.ErrSubtopicNotFound),
 		errors.Is(err, contentErrors.ErrLessonNotFound),
+
+		errors.Is(err, progressErrors.ErrUserProgressNotFound),
+		errors.Is(err, progressErrors.ErrLearningStatsNotFound),
+
+		errors.Is(err, adaptationErrors.ErrReinforcementFeaturesNotFound),
+
 		errors.Is(err, assessmentErrors.ErrQuizNotFound),
 		errors.Is(err, assessmentErrors.ErrAttemptNotFound),
-		errors.Is(err, assessmentErrors.ErrQuizNotFound),
-		errors.Is(err, assessmentErrors.ErrAttemptNotFound):
+		errors.Is(err, adaptationErrors.ErrRecommendationDataNotFound),
+		errors.Is(err, adaptationErrors.ErrTopicNotFound):
 		return AppError{
 			Status: http.StatusNotFound,
 			Code:   err.Error(),
 		}
 
 	case errors.Is(err, authErrors.ErrEmailAlreadyExists),
-		errors.Is(err, authErrors.ErrGoogleEmailAlreadyExists):
+		errors.Is(err, authErrors.ErrGoogleEmailAlreadyExists),
+		errors.Is(err, profileErrors.ErrProfileAlreadyCompleted):
 		return AppError{
 			Status: http.StatusConflict,
 			Code:   err.Error(),

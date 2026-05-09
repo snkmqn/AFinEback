@@ -18,4 +18,7 @@ type ProcessQuizResultInput struct {
 
 type AdaptationService interface {
 	ProcessQuizResult(ctx context.Context, input ProcessQuizResultInput) (*dto.ReinforcementResponse, error)
+	GetHomeRecommendations(ctx context.Context, userID int64, languageCode string) (*dto.HomeRecommendationsResponse, error)
+	GetLearningMap(ctx context.Context, userID int64, languageCode string) (*dto.LearningMapResponse, error)
+	GetTopicLearningMap(ctx context.Context, userID int64, topicCode, languageCode string) (*dto.TopicLearningMapResponse, error)
 }

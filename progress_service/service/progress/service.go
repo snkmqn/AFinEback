@@ -2,11 +2,11 @@ package progress
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"diplomaBackend/internal/logger"
 	"diplomaBackend/progress_service/dto"
+	progressErrors "diplomaBackend/progress_service/errors"
 	"diplomaBackend/progress_service/model"
 	"diplomaBackend/progress_service/repository"
 	progressService "diplomaBackend/progress_service/service"
@@ -24,23 +24,23 @@ func NewService(repo repository.ProgressRepository) progressService.ProgressServ
 
 func (s *Service) ProcessQuizResult(ctx context.Context, input progressService.ProcessQuizResultInput) error {
 	if input.UserID <= 0 {
-		return errors.New("INVALID_USER_ID")
+		return progressErrors.ErrInvalidUserID
 	}
 
 	if input.QuizCode == "" {
-		return errors.New("INVALID_QUIZ_CODE")
+		return progressErrors.ErrInvalidQuizCode
 	}
 
 	if input.MaxScorePoints <= 0 {
-		return errors.New("INVALID_MAX_SCORE_POINTS")
+		return progressErrors.ErrInvalidMaxScorePoints
 	}
 
 	if input.ScorePoints < 0 || input.ScorePoints > input.MaxScorePoints {
-		return errors.New("INVALID_SCORE_POINTS")
+		return progressErrors.ErrInvalidScorePoints
 	}
 
 	if input.ScorePercent < 0 || input.ScorePercent > 100 {
-		return errors.New("INVALID_SCORE_PERCENT")
+		return progressErrors.ErrInvalidScorePercent
 	}
 
 	if input.CompletedAt.IsZero() {
@@ -131,6 +131,9 @@ func (s *Service) ProcessQuizResult(ctx context.Context, input progressService.P
 }
 
 func (s *Service) GetProgressOverview(ctx context.Context, userID int64) (*dto.ProgressOverviewResponse, error) {
+	if userID <= 0 {
+		return nil, progressErrors.ErrInvalidUserID
+	}
 	if err := s.repo.EnsureUserProgress(ctx, userID); err != nil {
 		return nil, err
 	}

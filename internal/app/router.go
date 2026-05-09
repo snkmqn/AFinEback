@@ -1,6 +1,7 @@
 package app
 
 import (
+	adaptationHandler "diplomaBackend/adaptation_service/handler"
 	assessmentHandler "diplomaBackend/assessment_service/handler"
 	contentHandler "diplomaBackend/content_service/handler"
 	progressHandler "diplomaBackend/progress_service/handler"
@@ -16,6 +17,7 @@ func NewRouter(
 	contentHandler *contentHandler.Handler,
 	assessmentHandler *assessmentHandler.Handler,
 	progressHandler *progressHandler.Handler,
+	adaptationHandler *adaptationHandler.Handler,
 	authMiddleware func(http.Handler) http.Handler,
 ) http.Handler {
 	apiMux := http.NewServeMux()
@@ -45,6 +47,9 @@ func NewRouter(
 	apiMux.Handle("GET /assessment/quizzes/{quizId}/latest-attempt", authMiddleware(http.HandlerFunc(assessmentHandler.GetLatestAttemptByQuizID)))
 	apiMux.Handle("GET /assessment/attempts/{attemptId}", authMiddleware(http.HandlerFunc(assessmentHandler.GetAttemptByID)))
 	apiMux.Handle("GET /progress/me", authMiddleware(http.HandlerFunc(progressHandler.GetMyProgress)))
+	apiMux.Handle("GET /adaptation/recommendations/home", authMiddleware(http.HandlerFunc(adaptationHandler.GetHomeRecommendations)))
+	apiMux.Handle("GET /adaptation/learning-map", authMiddleware(http.HandlerFunc(adaptationHandler.GetLearningMap)))
+	apiMux.Handle("GET /adaptation/topics/{topicCode}/learning-map", authMiddleware(http.HandlerFunc(adaptationHandler.GetTopicLearningMap)))
 
 	rootMux := http.NewServeMux()
 	rootMux.Handle("/api/", http.StripPrefix("/api", apiMux))

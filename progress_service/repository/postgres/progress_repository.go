@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	storagePostgres "diplomaBackend/internal/storage/postgres"
+	progressErrors "diplomaBackend/progress_service/errors"
 	"diplomaBackend/progress_service/model"
 
 	"github.com/jackc/pgx/v5"
@@ -210,7 +211,7 @@ func (r *ProgressRepository) RecalculateLearningStats(ctx context.Context, userI
 				count(*)::int as completed_quizzes_count,
 				count(*) filter (where quiz_type = 'subtopic_quiz')::int as completed_subtopic_quizzes_count,
 				count(*) filter (where quiz_type = 'topic_final_quiz')::int as completed_topic_final_quizzes_count,
-				count(*) filter (where quiz_type = 'subtopic_quiz')::int as completed_subtopics_count,
+				count(*) filter (where quiz_type = 'subtopic_quiz' and best_score_percent >= 70)::int as completed_subtopics_count,
 				count(*) filter (
 					where quiz_type = 'topic_final_quiz'
 					  and best_score_percent >= 75
@@ -320,8 +321,15 @@ func (r *ProgressRepository) GetUserProgress(ctx context.Context, userID int64) 
 		&progress.CreatedAt,
 		&progress.UpdatedAt,
 	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, progressErrors.ErrUserProgressNotFound
+		}
 
-	return &progress, err
+		return nil, err
+	}
+
+	return &progress, nil
 }
 
 func (r *ProgressRepository) GetLearningStats(ctx context.Context, userID int64) (*model.UserLearningStats, error) {
@@ -365,6 +373,13 @@ func (r *ProgressRepository) GetLearningStats(ctx context.Context, userID int64)
 		&stats.CreatedAt,
 		&stats.UpdatedAt,
 	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, progressErrors.ErrLearningStatsNotFound
+		}
 
-	return &stats, err
+		return nil, err
+	}
+
+	return &stats, nil
 }

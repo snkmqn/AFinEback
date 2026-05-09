@@ -16,4 +16,5 @@ var (
 	ErrInvalidTheme            = errors.New("INVALID_THEME")
 	ErrInvalidReminderTime     = errors.New("INVALID_REMINDER_TIME")
 	ErrPreferredTopicsRequired = errors.New("PREFERRED_TOPICS_REQUIRED")
+	ErrProfileAlreadyCompleted = errors.New("PROFILE_ALREADY_COMPLETED")
 )

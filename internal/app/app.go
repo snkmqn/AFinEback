@@ -3,6 +3,7 @@ package app
 import (
 	"net/http"
 
+	adaptationHTTP "diplomaBackend/adaptation_service/handler"
 	adaptationPostgres "diplomaBackend/adaptation_service/repository/postgres"
 	adaptationService "diplomaBackend/adaptation_service/service/adaptation"
 	assessmentHandler "diplomaBackend/assessment_service/handler"
@@ -57,12 +58,23 @@ func New(cfg *config.Config) *App {
 
 	adaptationRepo := adaptationPostgres.NewAdaptationRepository(db)
 
-	var mlClient mlclient.Client
-	if cfg.MLServiceURL != "" {
-		mlClient = mlclient.NewHTTPClient(cfg.MLServiceURL)
+	var reinforcementMLClient mlclient.Client
+	if cfg.ReinforcementMLServiceURL != "" {
+		reinforcementMLClient = mlclient.NewHTTPClient(cfg.ReinforcementMLServiceURL)
 	}
 
-	adaptationSvc := adaptationService.NewService(adaptationRepo, mlClient)
+	var nextLessonMLClient mlclient.Client
+	if cfg.NextLessonMLServiceURL != "" {
+		nextLessonMLClient = mlclient.NewHTTPClient(cfg.NextLessonMLServiceURL)
+	}
+
+	adaptationSvc := adaptationService.NewService(
+		adaptationRepo,
+		reinforcementMLClient,
+		nextLessonMLClient,
+	)
+
+	adaptationHandler := adaptationHTTP.NewHandler(adaptationSvc)
 
 	profileSvc := userProfileService.NewService(
 		profileRepo,
@@ -95,7 +107,7 @@ func New(cfg *config.Config) *App {
 		progressSvc,
 		adaptationSvc,
 	)
-	
+
 	profileHandler := userProfileHandler.NewHandler(profileSvc)
 	contentHandler := contentHandler.NewHandler(contentSvc)
 	progressHandler := progressHandler.NewHandler(progressSvc)
@@ -109,6 +121,7 @@ func New(cfg *config.Config) *App {
 		contentHandler,
 		assessmentHandler,
 		progressHandler,
+		adaptationHandler,
 		authMiddleware,
 	))
 

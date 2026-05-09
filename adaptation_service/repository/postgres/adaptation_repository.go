@@ -2,9 +2,13 @@ package postgres
 
 import (
 	"context"
+	"errors"
 
+	adaptationErrors "diplomaBackend/adaptation_service/errors"
 	"diplomaBackend/adaptation_service/model"
 	storagePostgres "diplomaBackend/internal/storage/postgres"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type AdaptationRepository struct {
@@ -73,7 +77,11 @@ func (r *AdaptationRepository) GetReinforcementFeatures(ctx context.Context, use
 			where qa.user_id = $1
 			  and qa.id <> $2
 			  and qa.status = 'completed'
-			  and qa.score_percent < 75
+			  and (
+	(coalesce(q.quiz_type, 'subtopic_quiz') = 'subtopic_quiz' and qa.score_percent < 70)
+	or
+	(q.quiz_type = 'topic_final_quiz' and qa.score_percent < 75)
+)
 			  and coalesce(q.topic_code, t_from_subtopic.code) = (select topic_code from current_attempt)
 		),
 		preferred_match as (
@@ -127,6 +135,10 @@ func (r *AdaptationRepository) GetReinforcementFeatures(ctx context.Context, use
 		&features.CompletedInteractive,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, adaptationErrors.ErrReinforcementFeaturesNotFound
+		}
+
 		return nil, err
 	}
 
@@ -189,4 +201,226 @@ func (r *AdaptationRepository) SaveReinforcementPrediction(ctx context.Context, 
 	)
 
 	return err
+}
+
+func (r *AdaptationRepository) GetRecommendationUserData(ctx context.Context, userID int64) (*model.RecommendationUserData, error) {
+	query := `
+		select
+			ulp.user_id,
+			ulp.financial_literacy_level,
+			ulp.practical_experience,
+			ulp.learning_goal,
+			ulp.time_commitment,
+			coalesce(array(
+				select upt.topic_code
+				from user_preferred_topics upt
+				where upt.user_id = ulp.user_id
+				order by upt.topic_code
+			), array[]::varchar[]) as preferred_topics,
+			coalesce(uls.completed_subtopics_count, 0)::int,
+			coalesce(uls.completed_topics_count, 0)::int,
+			coalesce(uls.average_best_score_percent, 0)::numeric,
+			coalesce(uls.average_all_attempts_score_percent, 0)::numeric,
+			coalesce((
+				select qa.score_percent::numeric
+				from quiz_attempts qa
+				where qa.user_id = ulp.user_id
+				  and qa.status = 'completed'
+				order by coalesce(qa.submitted_at, qa.created_at) desc, qa.id desc
+				limit 1
+			), -1)::numeric as last_quiz_score,
+			coalesce((
+				select count(*)
+				from user_quiz_progress uqp
+				where uqp.user_id = ulp.user_id
+				  and (
+					(uqp.quiz_type = 'subtopic_quiz' and uqp.best_score_percent < 70)
+					or
+					(uqp.quiz_type = 'topic_final_quiz' and uqp.best_score_percent < 75)
+				  )
+			), 0)::int as failed_quiz_count,
+			coalesce(floor(extract(epoch from (now() - coalesce(up.last_activity_at, uls.last_quiz_completed_at, now()))) / 86400), 0)::int as days_since_last_activity
+		from user_learning_profiles ulp
+		left join user_learning_stats uls
+			on uls.user_id = ulp.user_id
+		left join user_progress up
+			on up.user_id = ulp.user_id
+		where ulp.user_id = $1
+		  and ulp.onboarding_completed = true
+	`
+
+	var data model.RecommendationUserData
+
+	err := r.db.QueryRow(ctx, query, userID).Scan(
+		&data.UserID,
+		&data.FinancialLiteracyLevel,
+		&data.PracticalExperience,
+		&data.LearningGoal,
+		&data.TimeCommitment,
+		&data.PreferredTopics,
+		&data.CompletedSubtopicsCount,
+		&data.CompletedTopicsCount,
+		&data.AverageBestScorePercent,
+		&data.AverageAllAttemptsScorePercent,
+		&data.LastQuizScore,
+		&data.FailedQuizCount,
+		&data.DaysSinceLastActivity,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, adaptationErrors.ErrRecommendationDataNotFound
+		}
+		return nil, err
+	}
+
+	return &data, nil
+}
+
+func (r *AdaptationRepository) ListLearningMapSubtopics(ctx context.Context, languageCode string) ([]model.CandidateSubtopic, error) {
+	query := `
+		select
+			t.code as topic_code,
+			tt.title as topic_title,
+			t.level as topic_level,
+			t.order_index as topic_order_index,
+			s.code as subtopic_code,
+			st.title as subtopic_title,
+			s.order_index as subtopic_order_index,
+			s.estimated_minutes
+		from topics t
+		join topic_translations tt
+			on tt.topic_id = t.id
+		   and tt.language_code = $1
+		join subtopics s
+			on s.topic_id = t.id
+		join subtopic_translations st
+			on st.subtopic_id = s.id
+		   and st.language_code = $1
+		join lessons l
+			on l.subtopic_id = s.id
+		   and l.is_published = true
+		where t.is_active = true
+		  and s.is_active = true
+		order by
+			case t.level
+				when 'beginner' then 1
+				when 'intermediate' then 2
+				when 'advanced' then 3
+				else 4
+			end,
+			t.order_index,
+			s.order_index
+	`
+
+	rows, err := r.db.Query(ctx, query, languageCode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.CandidateSubtopic, 0)
+
+	for rows.Next() {
+		var item model.CandidateSubtopic
+
+		if err := rows.Scan(
+			&item.TopicCode,
+			&item.TopicTitle,
+			&item.TopicLevel,
+			&item.TopicOrderIndex,
+			&item.SubtopicCode,
+			&item.SubtopicTitle,
+			&item.SubtopicOrderIndex,
+			&item.EstimatedMinutes,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+func (r *AdaptationRepository) GetUserSubtopicProgressMap(ctx context.Context, userID int64) (map[string]model.UserSubtopicProgress, error) {
+	query := `
+		select
+			coalesce(topic_code, '') as topic_code,
+			subtopic_code,
+			best_score_percent::numeric,
+			attempts_count,
+			last_attempt_at
+		from user_quiz_progress
+		where user_id = $1
+		  and quiz_type = 'subtopic_quiz'
+		  and subtopic_code is not null
+	`
+
+	rows, err := r.db.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	progressMap := make(map[string]model.UserSubtopicProgress)
+
+	for rows.Next() {
+		var item model.UserSubtopicProgress
+
+		if err := rows.Scan(
+			&item.TopicCode,
+			&item.SubtopicCode,
+			&item.BestScorePercent,
+			&item.AttemptsCount,
+			&item.LastAttemptAt,
+		); err != nil {
+			return nil, err
+		}
+
+		progressMap[item.SubtopicCode] = item
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return progressMap, nil
+}
+
+func (r *AdaptationRepository) GetLatestActiveReinforcement(ctx context.Context, userID int64) (*model.ActiveReinforcement, error) {
+	query := `
+		select
+			topic_code,
+			coalesce(subtopic_code, ''),
+			quiz_type,
+			score_percent::numeric,
+			created_at
+		from user_reinforcement_predictions
+		where user_id = $1
+		  and needs_reinforcement = true
+		order by created_at desc, id desc
+		limit 1
+	`
+
+	var item model.ActiveReinforcement
+
+	err := r.db.QueryRow(ctx, query, userID).Scan(
+		&item.TopicCode,
+		&item.SubtopicCode,
+		&item.QuizType,
+		&item.ScorePercent,
+		&item.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &item, nil
 }
