@@ -458,7 +458,7 @@ func buildRankItem(
 	attempts := 0
 
 	if hasProgress {
-		lastScore = progress.BestScorePercent
+		lastScore = progress.LastScorePercent
 		bestScore = progress.BestScorePercent
 		attempts = progress.AttemptsCount
 	}

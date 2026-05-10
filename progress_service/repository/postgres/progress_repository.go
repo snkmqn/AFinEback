@@ -204,23 +204,78 @@ func (r *ProgressRepository) AddXP(ctx context.Context, userID int64, xpDelta in
 
 func (r *ProgressRepository) RecalculateLearningStats(ctx context.Context, userID int64) error {
 	query := `
-		with quiz_progress_stats as (
+		with user_quiz_progress_with_quiz as (
+			select
+				uqp.user_id,
+				uqp.quiz_code,
+				uqp.quiz_type,
+				coalesce(uqp.topic_code, q.topic_code, t_from_subtopic.code) as topic_code,
+				uqp.subtopic_code,
+				uqp.best_score_percent,
+				uqp.attempts_count,
+				uqp.last_attempt_at,
+				q.passing_score
+			from user_quiz_progress uqp
+			join quizzes q
+				on (
+					uqp.quiz_type = 'subtopic_quiz'
+					and q.quiz_type = 'subtopic_quiz'
+					and q.subtopic_code = uqp.quiz_code
+				)
+				or (
+					uqp.quiz_type = 'topic_final_quiz'
+					and q.quiz_type = 'topic_final_quiz'
+					and uqp.quiz_code = q.topic_code || '_final'
+				)
+			left join subtopics s
+				on s.code = q.subtopic_code
+			left join topics t_from_subtopic
+				on t_from_subtopic.id = s.topic_id
+			where uqp.user_id = $1
+		),
+		quiz_progress_stats as (
 			select
 				$1::bigint as user_id,
-				coalesce(sum(attempts_count), 0)::int as total_quiz_attempts,
-				count(*)::int as completed_quizzes_count,
-				count(*) filter (where quiz_type = 'subtopic_quiz')::int as completed_subtopic_quizzes_count,
-				count(*) filter (where quiz_type = 'topic_final_quiz')::int as completed_topic_final_quizzes_count,
-				count(*) filter (where quiz_type = 'subtopic_quiz' and best_score_percent >= 70)::int as completed_subtopics_count,
+
+				coalesce((
+					select count(*)::int
+					from quiz_attempts qa
+					where qa.user_id = $1
+					  and qa.status = 'completed'
+				), 0)::int as total_quiz_attempts,
+
+				count(*) filter (
+					where best_score_percent >= passing_score
+				)::int as completed_quizzes_count,
+
+				count(*) filter (
+					where quiz_type = 'subtopic_quiz'
+					  and best_score_percent >= passing_score
+				)::int as completed_subtopic_quizzes_count,
+
 				count(*) filter (
 					where quiz_type = 'topic_final_quiz'
-					  and best_score_percent >= 75
+					  and best_score_percent >= passing_score
+				)::int as completed_topic_final_quizzes_count,
+
+				count(*) filter (
+					where quiz_type = 'subtopic_quiz'
+					  and best_score_percent >= passing_score
+				)::int as completed_subtopics_count,
+
+				count(*) filter (
+					where quiz_type = 'topic_final_quiz'
+					  and best_score_percent >= passing_score
 				)::int as completed_topics_count,
+
 				coalesce(avg(best_score_percent), 0)::numeric(5,2) as average_best_score_percent,
-				count(*) filter (where best_score_percent = 100)::int as max_score_quizzes_count,
+
+				count(*) filter (
+					where best_score_percent = 100
+				)::int as max_score_quizzes_count,
+
 				max(last_attempt_at) as last_quiz_completed_at
-			from user_quiz_progress
-			where user_id = $1
+			from user_quiz_progress_with_quiz
 		),
 		all_attempts_stats as (
 			select
@@ -229,22 +284,24 @@ func (r *ProgressRepository) RecalculateLearningStats(ctx context.Context, userI
 			where qa.user_id = $1
 			  and qa.status = 'completed'
 		),
+		topic_average_scores as (
+			select
+				topic_code,
+				avg(best_score_percent) as avg_topic_best_score
+			from user_quiz_progress_with_quiz
+			where topic_code is not null
+			group by topic_code
+		),
 		best_topic as (
 			select topic_code
-			from user_quiz_progress
-			where user_id = $1
-			  and topic_code is not null
-			group by topic_code
-			order by avg(best_score_percent) desc, topic_code
+			from topic_average_scores
+			order by avg_topic_best_score desc, topic_code
 			limit 1
 		),
 		weakest_topic as (
 			select topic_code
-			from user_quiz_progress
-			where user_id = $1
-			  and topic_code is not null
-			group by topic_code
-			order by avg(best_score_percent) asc, topic_code
+			from topic_average_scores
+			order by avg_topic_best_score asc, topic_code
 			limit 1
 		)
 		insert into user_learning_stats (

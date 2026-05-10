@@ -33,6 +33,7 @@ type UserSubtopicProgress struct {
 	TopicCode        string
 	SubtopicCode     string
 	BestScorePercent float64
+	LastScorePercent float64
 	AttemptsCount    int
 	LastAttemptAt    time.Time
 }

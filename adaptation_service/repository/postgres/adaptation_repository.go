@@ -230,15 +230,22 @@ func (r *AdaptationRepository) GetRecommendationUserData(ctx context.Context, us
 				limit 1
 			), -1)::numeric as last_quiz_score,
 			coalesce((
-				select count(*)
-				from user_quiz_progress uqp
-				where uqp.user_id = ulp.user_id
-				  and (
-					(uqp.quiz_type = 'subtopic_quiz' and uqp.best_score_percent < 70)
-					or
-					(uqp.quiz_type = 'topic_final_quiz' and uqp.best_score_percent < 75)
-				  )
-			), 0)::int as failed_quiz_count,
+    with latest_attempts as (
+        select distinct on (qa.quiz_id)
+            qa.quiz_id,
+            q.passing_score,
+            qa.score_percent
+        from quiz_attempts qa
+        join quizzes q
+            on q.id = qa.quiz_id
+        where qa.user_id = ulp.user_id
+          and qa.status = 'completed'
+        order by qa.quiz_id, coalesce(qa.completed_at, qa.submitted_at, qa.created_at) desc, qa.id desc
+    )
+    select count(*)
+    from latest_attempts la
+    where la.score_percent < la.passing_score
+), 0)::int as failed_quiz_count,
 			coalesce(floor(extract(epoch from (now() - coalesce(up.last_activity_at, uls.last_quiz_completed_at, now()))) / 86400), 0)::int as days_since_last_activity
 		from user_learning_profiles ulp
 		left join user_learning_stats uls
@@ -348,16 +355,32 @@ func (r *AdaptationRepository) ListLearningMapSubtopics(ctx context.Context, lan
 
 func (r *AdaptationRepository) GetUserSubtopicProgressMap(ctx context.Context, userID int64) (map[string]model.UserSubtopicProgress, error) {
 	query := `
+		with latest_subtopic_attempts as (
+			select distinct on (q.subtopic_code)
+				q.subtopic_code,
+				qa.score_percent::numeric as last_score_percent
+			from quiz_attempts qa
+			join quizzes q
+				on q.id = qa.quiz_id
+			where qa.user_id = $1
+			  and qa.status = 'completed'
+			  and q.quiz_type = 'subtopic_quiz'
+			  and q.subtopic_code is not null
+			order by q.subtopic_code, coalesce(qa.completed_at, qa.submitted_at, qa.created_at) desc, qa.id desc
+		)
 		select
-			coalesce(topic_code, '') as topic_code,
-			subtopic_code,
-			best_score_percent::numeric,
-			attempts_count,
-			last_attempt_at
-		from user_quiz_progress
-		where user_id = $1
-		  and quiz_type = 'subtopic_quiz'
-		  and subtopic_code is not null
+			coalesce(uqp.topic_code, '') as topic_code,
+			uqp.subtopic_code,
+			uqp.best_score_percent::numeric,
+			coalesce(lsa.last_score_percent, uqp.best_score_percent)::numeric as last_score_percent,
+			uqp.attempts_count,
+			uqp.last_attempt_at
+		from user_quiz_progress uqp
+		left join latest_subtopic_attempts lsa
+			on lsa.subtopic_code = uqp.subtopic_code
+		where uqp.user_id = $1
+		  and uqp.quiz_type = 'subtopic_quiz'
+		  and uqp.subtopic_code is not null
 	`
 
 	rows, err := r.db.Query(ctx, query, userID)
@@ -375,6 +398,7 @@ func (r *AdaptationRepository) GetUserSubtopicProgressMap(ctx context.Context, u
 			&item.TopicCode,
 			&item.SubtopicCode,
 			&item.BestScorePercent,
+			&item.LastScorePercent,
 			&item.AttemptsCount,
 			&item.LastAttemptAt,
 		); err != nil {
