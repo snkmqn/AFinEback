@@ -180,3 +180,20 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		"message": "PASSWORD_CHANGED",
 	})
 }
+
+func (h *AuthHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		response.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED")
+		return
+	}
+
+	if err := h.authService.DeleteAccount(r.Context(), userID); err != nil {
+		response.WriteAppError(w, err)
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, map[string]string{
+		"message": "ACCOUNT_DELETED",
+	})
+}

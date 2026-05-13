@@ -14,4 +14,5 @@ type AuthService interface {
 	Me(ctx context.Context, userID int64) (*dto.UserResponse, error)
 	ChangePassword(ctx context.Context, userID int64, input dto.ChangePasswordInput) error
 	ChangeUsername(ctx context.Context, userID int64, input dto.ChangeUsernameInput) (*dto.UserResponse, error)
+	DeleteAccount(ctx context.Context, userID int64) error
 }

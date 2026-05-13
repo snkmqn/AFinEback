@@ -31,6 +31,7 @@ func NewRouter(
 	apiMux.Handle("GET /auth/me", authMiddleware(http.HandlerFunc(authHandler.Me)))
 	apiMux.Handle("PATCH /auth/me/username", authMiddleware(http.HandlerFunc(authHandler.ChangeUsername)))
 	apiMux.Handle("PATCH /auth/me/password", authMiddleware(http.HandlerFunc(authHandler.ChangePassword)))
+	apiMux.Handle("DELETE /auth/me", authMiddleware(http.HandlerFunc(authHandler.DeleteAccount)))
 
 	apiMux.Handle("GET /profile/me", authMiddleware(http.HandlerFunc(profileHandler.GetProfile)))
 	apiMux.Handle("PUT /profile/me", authMiddleware(http.HandlerFunc(profileHandler.UpsertProfile)))

@@ -559,3 +559,31 @@ func isValidGoogleUsername(username string) bool {
 
 	return true
 }
+
+func (s *Service) DeleteAccount(ctx context.Context, userID int64) error {
+	return s.txManager.WithinTransaction(ctx, func(
+		userRepo repository.UserRepository,
+		refreshTokenRepo repository.RefreshTokenRepository,
+		oauthAccountRepo repository.OAuthAccountRepository,
+		userLoginSecurityRepo repository.UserLoginSecurityRepository,
+	) error {
+		_ = oauthAccountRepo
+		_ = userLoginSecurityRepo
+
+		if _, err := userRepo.GetByID(ctx, userID); err != nil {
+			return err
+		}
+
+		if err := refreshTokenRepo.RevokeAllByUserID(ctx, userID); err != nil {
+			return err
+		}
+
+		if err := userRepo.DeleteByID(ctx, userID); err != nil {
+			return err
+		}
+
+		logger.Warn("account deleted: user_id=%d", userID)
+
+		return nil
+	})
+}

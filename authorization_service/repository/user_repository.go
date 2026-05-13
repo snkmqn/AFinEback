@@ -13,4 +13,5 @@ type UserRepository interface {
 	GetByID(ctx context.Context, id int64) (*model.User, error)
 	UpdateUsername(ctx context.Context, userID int64, username string) error
 	UpdatePasswordHash(ctx context.Context, userID int64, passwordHash string) error
+	DeleteByID(ctx context.Context, userID int64) error
 }

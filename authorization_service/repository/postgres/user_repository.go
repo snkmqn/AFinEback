@@ -176,3 +176,21 @@ func (r *UserRepository) UpdatePasswordHash(ctx context.Context, userID int64, p
 
 	return nil
 }
+
+func (r *UserRepository) DeleteByID(ctx context.Context, userID int64) error {
+	query := `
+		DELETE FROM users
+		WHERE id = $1
+	`
+
+	cmdTag, err := r.db.Exec(ctx, query, userID)
+	if err != nil {
+		return err
+	}
+
+	if cmdTag.RowsAffected() == 0 {
+		return authErrors.ErrUserNotFound
+	}
+
+	return nil
+}
