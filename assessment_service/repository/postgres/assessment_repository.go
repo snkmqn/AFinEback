@@ -111,16 +111,22 @@ func (r *AssessmentRepository) GetQuizStartMeta(ctx context.Context, quizID int6
 
 func (r *AssessmentRepository) GetRandomQuestionsByQuizID(ctx context.Context, quizID int64, languageCode string, limit int) ([]dto.QuestionResponse, error) {
 	query := `
-		with selected_questions as (
-			select
-				qq.id,
-				qq.question_type,
-				row_number() over () as attempt_order
-			from quiz_questions qq
-			where qq.quiz_id = $1
-			order by random()
-			limit $3
-		)
+		with randomized_questions as (
+    select
+        qq.id,
+        qq.question_type
+    from quiz_questions qq
+    where qq.quiz_id = $1
+    order by random()
+    limit $3
+),
+selected_questions as (
+    select
+        id,
+        question_type,
+        row_number() over () as attempt_order
+    from randomized_questions
+)
 		select
 			sq.id as question_id,
 			sq.question_type,
