@@ -11,7 +11,7 @@ export const options = {
 };
 
 const BASE_URL = "http://localhost:8081/api";
-const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjo2LCJlbWFpbCI6ImFyc2VuMTIzMTIzQGdtYWlsLmNvbSIsInVzZXJuYW1lIjoiYXJzZW4xMjMiLCJzdWIiOiI2IiwiZXhwIjoxNzc5MDgwMjc4LCJpYXQiOjE3NzkwNzkzNzh9.4CC4uh4sOfrx73AgBABIzivSkVAZkjHfZ3YxnT-GGNI";
+const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjo2LCJlbWFpbCI6ImFyc2VuMTIzMTIzQGdtYWlsLmNvbSIsInVzZXJuYW1lIjoiYXJzZW4xMjMiLCJzdWIiOiI2IiwiZXhwIjoxNzgwMTI5MDk4LCJpYXQiOjE3ODAxMjgxOTh9.10UWBB-Gz8oFBd9_cTLrxqJp16ELY4s_3FUyOdCR48g";
 
 export default function () {
     const authHeaders = {

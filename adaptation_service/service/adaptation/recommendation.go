@@ -269,10 +269,10 @@ func (s *Service) buildPersonalizationData(ctx context.Context, userID int64, la
 
 	candidates := filterRankerCandidates(subtopics, progressMap, reinforcement)
 
-	recommended, err := s.rankNextLessons(ctx, userData, candidates, progressMap, reinforcement)
+	recommended, err := s.rankNextTopics(ctx, userData, candidates, progressMap, reinforcement)
 	if err != nil {
 		logger.Error("adaptation service: ml ranker failed, fallback will be used: user_id=%d err=%v", userID, err)
-		recommended = fallbackRankNextLessons(userData, candidates, progressMap, reinforcement)
+		recommended = fallbackRankNextTopics(userData, candidates, progressMap, reinforcement)
 	}
 
 	return &personalizationData{
@@ -332,7 +332,7 @@ func filterRankerCandidates(
 	return candidates
 }
 
-func (s *Service) rankNextLessons(
+func (s *Service) rankNextTopics(
 	ctx context.Context,
 	userData *model.RecommendationUserData,
 	candidates []model.CandidateSubtopic,
@@ -343,38 +343,41 @@ func (s *Service) rankNextLessons(
 		return []rankedCandidate{}, nil
 	}
 
-	if s.nextLessonMLClient == nil {
-		return nil, errors.New("next lesson ML client is not configured")
+	if s.nextTopicMLClient == nil {
+		return nil, errors.New("next topic ML client is not configured")
 	}
 
-	req := mlclient.NextLessonRankRequest{
-		Items: make([]mlclient.NextLessonRankItem, 0, len(candidates)),
+	topicCandidates := firstCandidateByTopic(candidates)
+
+	req := mlclient.NextTopicRankRequest{
+		Items: make([]mlclient.NextTopicRankItem, 0, len(topicCandidates)),
 	}
 
-	for _, candidate := range candidates {
-		req.Items = append(req.Items, buildRankItem(userData, candidate, progressMap, reinforcement))
+	for _, candidate := range topicCandidates {
+		req.Items = append(req.Items, buildTopicRankItem(userData, candidate))
 	}
 
-	res, err := s.nextLessonMLClient.RankNextLessons(ctx, req)
+	res, err := s.nextTopicMLClient.RankNextTopics(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	scoreMap := make(map[string]float64, len(res.Items))
-	for _, item := range res.Items {
-		scoreMap[item.CandidateSubtopicCode] = item.Score
+	candidateByTopic := make(map[string]model.CandidateSubtopic, len(topicCandidates))
+	for _, candidate := range topicCandidates {
+		candidateByTopic[candidate.TopicCode] = candidate
 	}
 
-	ranked := make([]rankedCandidate, 0, len(candidates))
-	for _, candidate := range candidates {
-		score, ok := scoreMap[candidate.SubtopicCode]
+	ranked := make([]rankedCandidate, 0, len(res.Items))
+
+	for _, item := range res.Items {
+		candidate, ok := candidateByTopic[item.CandidateTopicCode]
 		if !ok {
 			continue
 		}
 
 		ranked = append(ranked, rankedCandidate{
 			Candidate: candidate,
-			Score:     score,
+			Score:     item.Score,
 			Reason:    resolveReason(userData, candidate, progressMap),
 		})
 	}
@@ -388,7 +391,7 @@ func (s *Service) rankNextLessons(
 	return ranked, nil
 }
 
-func fallbackRankNextLessons(
+func fallbackRankNextTopics(
 	userData *model.RecommendationUserData,
 	candidates []model.CandidateSubtopic,
 	progressMap map[string]model.UserSubtopicProgress,
@@ -445,68 +448,65 @@ func fallbackRankNextLessons(
 	return ranked
 }
 
-func buildRankItem(
+func firstCandidateByTopic(candidates []model.CandidateSubtopic) []model.CandidateSubtopic {
+	byTopic := make(map[string]model.CandidateSubtopic)
+
+	for _, candidate := range candidates {
+		existing, ok := byTopic[candidate.TopicCode]
+		if !ok || candidate.SubtopicOrderIndex < existing.SubtopicOrderIndex {
+			byTopic[candidate.TopicCode] = candidate
+		}
+	}
+
+	result := make([]model.CandidateSubtopic, 0, len(byTopic))
+	for _, candidate := range byTopic {
+		result = append(result, candidate)
+	}
+
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].TopicOrderIndex == result[j].TopicOrderIndex {
+			return result[i].SubtopicOrderIndex < result[j].SubtopicOrderIndex
+		}
+
+		return result[i].TopicOrderIndex < result[j].TopicOrderIndex
+	})
+
+	return result
+}
+
+func buildTopicRankItem(
 	userData *model.RecommendationUserData,
 	candidate model.CandidateSubtopic,
-	progressMap map[string]model.UserSubtopicProgress,
-	reinforcement *model.ActiveReinforcement,
-) mlclient.NextLessonRankItem {
-	progress, hasProgress := progressMap[candidate.SubtopicCode]
-
-	lastScore := -1.0
-	bestScore := -1.0
-	attempts := 0
-
-	if hasProgress {
-		lastScore = progress.LastScorePercent
-		bestScore = progress.BestScorePercent
-		attempts = progress.AttemptsCount
+) mlclient.NextTopicRankItem {
+	userSkillIndex := userData.AverageBestScorePercent
+	if userSkillIndex <= 0 {
+		userSkillIndex = 50.0
 	}
 
-	needReinforcement := 0
-	if reinforcement != nil {
-		needReinforcement = 1
+	difficulty := topicDifficultyIndex(candidate.TopicLevel, candidate.TopicOrderIndex)
+
+	return mlclient.NextTopicRankItem{
+		CandidateTopicCode:            candidate.TopicCode,
+		UserSkillIndex:                userSkillIndex,
+		LearningGoalNum:               learningGoalToNum(userData.LearningGoal),
+		AverageBestScorePercent:       userSkillIndex,
+		CandidateTopicOrderIndex:      candidate.TopicOrderIndex,
+		CandidateTopicDifficultyIndex: difficulty,
+		DifficultyGap:                 difficulty - userSkillIndex,
+		IsPreferredTopic:              boolToInt(isPreferredTopic(userData, candidate.TopicCode)),
 	}
+}
 
-	estimatedMinutes := 0
-	if candidate.EstimatedMinutes != nil {
-		estimatedMinutes = *candidate.EstimatedMinutes
-	}
-
-	return mlclient.NextLessonRankItem{
-		CandidateSubtopicCode: candidate.SubtopicCode,
-
-		UserLevelNum:           levelToNum(userData.FinancialLiteracyLevel),
-		PracticalExperienceNum: practicalExperienceToNum(userData.PracticalExperience),
-		LearningGoalNum:        learningGoalToNum(userData.LearningGoal),
-		TimeCommitmentMinutes:  timeCommitmentToMinutes(userData.TimeCommitment),
-
-		CompletedSubtopicsCount:        userData.CompletedSubtopicsCount,
-		CompletionRatio:                float64(userData.CompletedSubtopicsCount) / float64(totalSubtopicsCount),
-		AverageBestScorePercent:        userData.AverageBestScorePercent,
-		AverageAllAttemptsScorePercent: userData.AverageAllAttemptsScorePercent,
-		LastQuizScore:                  userData.LastQuizScore,
-		FailedQuizCount:                userData.FailedQuizCount,
-		DaysSinceLastActivity:          userData.DaysSinceLastActivity,
-
-		CandidateLevelNum:           levelToNum(candidate.TopicLevel),
-		CandidateTopicOrderIndex:    candidate.TopicOrderIndex,
-		CandidateSubtopicOrderIndex: candidate.SubtopicOrderIndex,
-		CandidateEstimatedMinutes:   estimatedMinutes,
-
-		IsPreferredTopic:           boolToInt(isPreferredTopic(userData, candidate.TopicCode)),
-		IsSameTopicAsLastCompleted: boolToInt(isSameTopicAsLastCompleted(candidate, progressMap)),
-		IsNextSubtopicInSameTopic:  boolToInt(isNextSubtopicInSameTopic(candidate, progressMap)),
-		IsFirstSubtopicInTopic:     boolToInt(candidate.SubtopicOrderIndex == 1),
-		IsLevelMatch:               boolToInt(isLevelMatch(userData, candidate.TopicLevel)),
-		IsTimeCommitmentMatch:      boolToInt(isTimeCommitmentMatch(userData, candidate.EstimatedMinutes)),
-		IsTopicNotStarted:          boolToInt(!isTopicInProgress(candidate.TopicCode, progressMap)),
-		IsTopicInProgress:          boolToInt(isTopicInProgress(candidate.TopicCode, progressMap)),
-
-		NeedReinforcement:     needReinforcement,
-		LastScoreForCandidate: lastScore,
-		BestScoreForCandidate: bestScore,
-		AttemptsForCandidate:  attempts,
+func topicDifficultyIndex(level string, orderIndex int) float64 {
+	switch level {
+	case "beginner":
+		return 35.0 + float64(orderIndex)
+	case "intermediate":
+		return 60.0 + float64(orderIndex)
+	case "advanced":
+		return 82.0 + float64(orderIndex)
+	default:
+		return 50.0
 	}
 }
 

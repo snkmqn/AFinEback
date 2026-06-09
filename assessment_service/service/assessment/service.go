@@ -256,6 +256,7 @@ func (s *Service) SubmitAttempt(ctx context.Context, input service.SubmitQuizInp
 				Confidence:         adaptationResult.Confidence,
 				DecisionSource:     adaptationResult.DecisionSource,
 				ModelName:          adaptationResult.ModelName,
+				ModelVersion:       adaptationResult.ModelVersion,
 			}
 		}
 	}

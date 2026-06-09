@@ -448,3 +448,134 @@ func (r *AdaptationRepository) GetLatestActiveReinforcement(ctx context.Context,
 
 	return &item, nil
 }
+
+func (r *AdaptationRepository) LogLearningEventsFromAttempt(ctx context.Context, userID int64, attemptID int64) error {
+	query := `
+		insert into learning_event_log (
+			user_id,
+			topic_code,
+			concept_code,
+			occurred_at,
+			was_correct,
+			latency_ms,
+			quiz_id,
+			attempt_id,
+			question_id,
+			source
+		)
+		select
+			qa.user_id,
+			t.code as topic_code,
+			s.code as concept_code,
+			now() as occurred_at,
+			coalesce(qaa.is_question_correct, qaa.is_correct, false) as was_correct,
+			null as latency_ms,
+			q.id as quiz_id,
+			qa.id as attempt_id,
+			qq.id as question_id,
+			'quiz' as source
+		from quiz_attempts qa
+		join quizzes q
+			on q.id = qa.quiz_id
+		join subtopics s
+			on s.code = q.subtopic_code
+		join topics t
+			on t.id = s.topic_id
+		join quiz_questions qq
+			on qq.quiz_id = q.id
+		left join quiz_attempt_answers qaa
+			on qaa.attempt_id = qa.id
+		   and qaa.question_id = qq.id
+		where qa.id = $1
+		  and qa.user_id = $2
+		  and coalesce(q.quiz_type, 'subtopic_quiz') = 'subtopic_quiz'
+	`
+
+	_, err := r.db.Exec(ctx, query, attemptID, userID)
+	return err
+}
+
+func (r *AdaptationRepository) ListRepetitionCandidates(ctx context.Context, userID int64) ([]model.RepetitionCandidate, error) {
+	query := `
+		with latest_event as (
+			select distinct on (user_id, concept_code)
+				user_id,
+				concept_code,
+				was_correct,
+				occurred_at
+			from learning_event_log
+			where user_id = $1
+			order by user_id, concept_code, occurred_at desc
+		),
+		aggregated as (
+			select
+				lel.concept_code,
+				max(lel.topic_code) as topic_code,
+				extract(epoch from (now() - max(lel.occurred_at))) / 86400.0 as days_since_last_review,
+				count(*)::int as review_count,
+				avg(case when lel.was_correct then 1.0 else 0.0 end) as recall_success_rate,
+				coalesce(avg(lel.latency_ms) / 1000.0, 8.0) as average_latency_seconds
+			from learning_event_log lel
+			where lel.user_id = $1
+			group by lel.concept_code
+		)
+		select
+			a.concept_code,
+			a.topic_code,
+			50.0 as user_skill_index,
+			case
+				when t.level = 'beginner' then 35.0 + coalesce(s.order_index, 0)
+				when t.level = 'intermediate' then 60.0 + coalesce(s.order_index, 0)
+				when t.level = 'advanced' then 82.0 + coalesce(s.order_index, 0)
+				else 50.0
+			end as concept_difficulty_index,
+			a.days_since_last_review,
+			a.review_count,
+			a.recall_success_rate,
+			case when le.was_correct then 1 else 0 end as last_recall_correct,
+			a.average_latency_seconds
+		from aggregated a
+		join latest_event le
+			on le.user_id = $1
+		   and le.concept_code = a.concept_code
+		left join subtopics s
+			on s.code = a.concept_code
+		left join topics t
+			on t.id = s.topic_id
+		order by a.days_since_last_review desc;
+	`
+
+	rows, err := r.db.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []model.RepetitionCandidate
+
+	for rows.Next() {
+		var item model.RepetitionCandidate
+
+		if err := rows.Scan(
+			&item.ConceptCode,
+			&item.TopicCode,
+			&item.UserSkillIndex,
+			&item.ConceptDifficultyIndex,
+			&item.DaysSinceLastReview,
+			&item.ReviewCount,
+			&item.RecallSuccessRate,
+			&item.LastRecallCorrect,
+			&item.AverageLatencySeconds,
+		); err != nil {
+			return nil, err
+		}
+
+		result = append(result, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}

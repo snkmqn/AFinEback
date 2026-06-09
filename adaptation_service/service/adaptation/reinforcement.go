@@ -15,7 +15,7 @@ import (
 type Service struct {
 	adaptationRepo        repository.AdaptationRepository
 	reinforcementMLClient mlclient.Client
-	nextLessonMLClient    mlclient.Client
+	nextTopicMLClient     mlclient.Client
 }
 
 const (
@@ -30,12 +30,12 @@ const (
 func NewService(
 	adaptationRepo repository.AdaptationRepository,
 	reinforcementMLClient mlclient.Client,
-	nextLessonMLClient mlclient.Client,
+	nextTopicMLClient mlclient.Client,
 ) service.AdaptationService {
 	return &Service{
 		adaptationRepo:        adaptationRepo,
 		reinforcementMLClient: reinforcementMLClient,
-		nextLessonMLClient:    nextLessonMLClient,
+		nextTopicMLClient:     nextTopicMLClient,
 	}
 }
 
@@ -47,9 +47,42 @@ func (s *Service) ProcessQuizResult(ctx context.Context, input service.ProcessQu
 	if input.AttemptID <= 0 {
 		return nil, adaptationErrors.ErrInvalidAttemptID
 	}
+
 	features, err := s.adaptationRepo.GetReinforcementFeatures(ctx, input.UserID, input.AttemptID)
 	if err != nil {
 		return nil, err
+	}
+
+	if features.QuizType != quizTypeSubtopicQuiz {
+		result := &dto.ReinforcementResponse{
+			NeedsReinforcement: false,
+			Prediction:         0,
+			Probability:        0,
+			Confidence:         1,
+			DecisionSource:     "skipped_non_subtopic_quiz",
+			ModelName:          "rule_based",
+			ModelVersion:       "v1",
+		}
+
+		if err := s.savePrediction(ctx, input, features, result); err != nil {
+			logger.Error(
+				"adaptation service: failed to save skipped reinforcement prediction: user_id=%d attempt_id=%d err=%v",
+				input.UserID,
+				input.AttemptID,
+				err,
+			)
+		}
+
+		return result, nil
+	}
+
+	if err := s.adaptationRepo.LogLearningEventsFromAttempt(ctx, input.UserID, input.AttemptID); err != nil {
+		logger.Error(
+			"adaptation service: failed to log learning events: user_id=%d attempt_id=%d err=%v",
+			input.UserID,
+			input.AttemptID,
+			err,
+		)
 	}
 
 	if isStrongResult(features) {
@@ -60,6 +93,7 @@ func (s *Service) ProcessQuizResult(ctx context.Context, input service.ProcessQu
 			Confidence:         1,
 			DecisionSource:     "rule_strong_result",
 			ModelName:          "rule_based",
+			ModelVersion:       "v1",
 		}
 
 		if err := s.savePrediction(ctx, input, features, result); err != nil {
@@ -89,23 +123,48 @@ func (s *Service) ProcessQuizResult(ctx context.Context, input service.ProcessQu
 		return result, nil
 	}
 
-	mlResult, err := s.reinforcementMLClient.PredictReinforcement(ctx, mlclient.ReinforcementPredictRequest{
-		UserLevel:              features.UserLevel,
-		LearningGoal:           features.LearningGoal,
-		TopicCode:              features.TopicCode,
-		SubtopicCode:           features.SubtopicCode,
-		TopicLevel:             features.TopicLevel,
-		QuizType:               features.QuizType,
-		QuizScore:              features.QuizScore,
-		AvgLast3Scores:         features.AvgLast3Scores,
-		PreviousFailsSameTopic: features.PreviousFailsSameTopic,
-		SubtopicOrder:          features.SubtopicOrder,
-		PreferredTopicMatch:    features.PreferredTopicMatch,
-		CompletedInteractive:   features.CompletedInteractive,
-	})
+	candidates, err := s.adaptationRepo.ListRepetitionCandidates(ctx, input.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(candidates) == 0 {
+		result := fallbackReinforcement(features)
+
+		if err := s.savePrediction(ctx, input, features, result); err != nil {
+			logger.Error(
+				"adaptation service: failed to save fallback reinforcement prediction: user_id=%d attempt_id=%d err=%v",
+				input.UserID,
+				input.AttemptID,
+				err,
+			)
+		}
+
+		return result, nil
+	}
+
+	req := mlclient.RepetitionRankRequest{
+		Items: make([]mlclient.RepetitionRankItem, 0, len(candidates)),
+	}
+
+	for _, candidate := range candidates {
+		req.Items = append(req.Items, mlclient.RepetitionRankItem{
+			ConceptCode:            candidate.ConceptCode,
+			TopicCode:              candidate.TopicCode,
+			UserSkillIndex:         candidate.UserSkillIndex,
+			ConceptDifficultyIndex: candidate.ConceptDifficultyIndex,
+			DaysSinceLastReview:    candidate.DaysSinceLastReview,
+			ReviewCount:            candidate.ReviewCount,
+			RecallSuccessRate:      candidate.RecallSuccessRate,
+			LastRecallCorrect:      candidate.LastRecallCorrect,
+			AverageLatencySeconds:  candidate.AverageLatencySeconds,
+		})
+	}
+
+	mlResult, err := s.reinforcementMLClient.RankRepetition(ctx, req)
 	if err != nil {
 		logger.Error(
-			"adaptation service: failed to call ML service: user_id=%d attempt_id=%d err=%v",
+			"adaptation service: failed to call repetition ML service: user_id=%d attempt_id=%d err=%v",
 			input.UserID,
 			input.AttemptID,
 			err,
@@ -125,13 +184,38 @@ func (s *Service) ProcessQuizResult(ctx context.Context, input service.ProcessQu
 		return result, nil
 	}
 
+	if len(mlResult.Items) == 0 {
+		result := fallbackReinforcement(features)
+
+		if err := s.savePrediction(ctx, input, features, result); err != nil {
+			logger.Error(
+				"adaptation service: failed to save fallback reinforcement prediction: user_id=%d attempt_id=%d err=%v",
+				input.UserID,
+				input.AttemptID,
+				err,
+			)
+		}
+
+		return result, nil
+	}
+
+	top := mlResult.Items[0]
+
+	needsReinforcement := top.ReviewAction == "review_now" || top.ReviewAction == "review_soon"
+
+	prediction := 0
+	if needsReinforcement {
+		prediction = 1
+	}
+
 	result := &dto.ReinforcementResponse{
-		NeedsReinforcement: mlResult.NeedsReinforcement,
-		Prediction:         mlResult.Prediction,
-		Probability:        mlResult.Probability,
-		Confidence:         mlResult.Confidence,
-		DecisionSource:     "ml",
+		NeedsReinforcement: needsReinforcement,
+		Prediction:         prediction,
+		Probability:        top.PriorityScore,
+		Confidence:         top.RecallProbability,
+		DecisionSource:     "ml_repetition",
 		ModelName:          mlResult.ModelName,
+		ModelVersion:       mlResult.ModelVersion,
 	}
 
 	if err := s.savePrediction(ctx, input, features, result); err != nil {
@@ -179,6 +263,7 @@ func fallbackReinforcement(features *model.ReinforcementFeatures) *dto.Reinforce
 		Confidence:         0,
 		DecisionSource:     "fallback_rule",
 		ModelName:          "rule_based",
+		ModelVersion:       "v1",
 	}
 }
 
@@ -211,6 +296,6 @@ func (s *Service) savePrediction(
 
 		DecisionSource: result.DecisionSource,
 		ModelName:      result.ModelName,
-		ModelVersion:   "",
+		ModelVersion:   result.ModelVersion,
 	})
 }

@@ -63,15 +63,15 @@ func New(cfg *config.Config) *App {
 		reinforcementMLClient = mlclient.NewHTTPClient(cfg.ReinforcementMLServiceURL)
 	}
 
-	var nextLessonMLClient mlclient.Client
-	if cfg.NextLessonMLServiceURL != "" {
-		nextLessonMLClient = mlclient.NewHTTPClient(cfg.NextLessonMLServiceURL)
+	var nextTopicMLClient mlclient.Client
+	if cfg.NextTopicMLServiceURL != "" {
+		nextTopicMLClient = mlclient.NewHTTPClient(cfg.NextTopicMLServiceURL)
 	}
 
 	adaptationSvc := adaptationService.NewService(
 		adaptationRepo,
 		reinforcementMLClient,
-		nextLessonMLClient,
+		nextTopicMLClient,
 	)
 
 	adaptationHandler := adaptationHTTP.NewHandler(adaptationSvc)

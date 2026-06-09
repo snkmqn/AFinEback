@@ -107,4 +107,5 @@ type ReinforcementResultResponse struct {
 	Confidence         float64 `json:"confidence"`
 	DecisionSource     string  `json:"decision_source"`
 	ModelName          string  `json:"model_name,omitempty"`
+	ModelVersion       string  `json:"model_version,omitempty"`
 }

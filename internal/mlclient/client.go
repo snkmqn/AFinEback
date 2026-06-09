@@ -11,8 +11,8 @@ import (
 )
 
 type Client interface {
-	PredictReinforcement(ctx context.Context, req ReinforcementPredictRequest) (*ReinforcementPredictResponse, error)
-	RankNextLessons(ctx context.Context, req NextLessonRankRequest) (*NextLessonRankResponse, error)
+	RankNextTopics(ctx context.Context, req NextTopicRankRequest) (*NextTopicRankResponse, error)
+	RankRepetition(ctx context.Context, req RepetitionRankRequest) (*RepetitionRankResponse, error)
 }
 
 type HTTPClient struct {
@@ -29,75 +29,57 @@ func NewHTTPClient(baseURL string) *HTTPClient {
 	}
 }
 
-func (c *HTTPClient) PredictReinforcement(ctx context.Context, req ReinforcementPredictRequest) (*ReinforcementPredictResponse, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, err
-	}
+func (c *HTTPClient) RankNextTopics(ctx context.Context, req NextTopicRankRequest) (*NextTopicRankResponse, error) {
+	var result NextTopicRankResponse
 
-	httpReq, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		c.baseURL+"/predict/reinforcement",
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("ml service returned status %d", resp.StatusCode)
-	}
-
-	var result ReinforcementPredictResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := c.postJSON(ctx, "/rank/next-topics", req, &result); err != nil {
 		return nil, err
 	}
 
 	return &result, nil
 }
 
-func (c *HTTPClient) RankNextLessons(ctx context.Context, req NextLessonRankRequest) (*NextLessonRankResponse, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
+func (c *HTTPClient) RankRepetition(ctx context.Context, req RepetitionRankRequest) (*RepetitionRankResponse, error) {
+	var result RepetitionRankResponse
+
+	if err := c.postJSON(ctx, "/rank/repetition", req, &result); err != nil {
 		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *HTTPClient) postJSON(ctx context.Context, path string, reqBody any, result any) error {
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return err
 	}
 
 	httpReq, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
-		c.baseURL+"/rank/next-lessons",
+		c.baseURL+path,
 		bytes.NewReader(body),
 	)
-
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("ml service returned status %d", resp.StatusCode)
+		return fmt.Errorf("ml service returned status %d", resp.StatusCode)
 	}
 
-	var result NextLessonRankResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
+	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+		return err
 	}
 
-	return &result, nil
+	return nil
 }
