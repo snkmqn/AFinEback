@@ -1,1 +1,0 @@
--- email uniqueness is already enforced by users.email UNIQUE constraint
