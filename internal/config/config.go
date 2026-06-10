@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -17,6 +18,9 @@ type Config struct {
 	RefreshTokenTTL           time.Duration
 	ReinforcementMLServiceURL string
 	NextTopicMLServiceURL     string
+	RedisAddr                 string
+	RedisPassword             string
+	RedisDB                   int
 }
 
 func Load() *Config {
@@ -35,6 +39,15 @@ func Load() *Config {
 		log.Fatalf("invalid REFRESH_TOKEN_TTL: %v", err)
 	}
 
+	redisDB := 0
+	if os.Getenv("REDIS_DB") != "" {
+		parsedRedisDB, err := strconv.Atoi(os.Getenv("REDIS_DB"))
+		if err != nil {
+			log.Fatalf("invalid REDIS_DB: %v", err)
+		}
+		redisDB = parsedRedisDB
+	}
+
 	cfg := &Config{
 		Port:                      os.Getenv("PORT"),
 		DatabaseURL:               os.Getenv("DATABASE_URL"),
@@ -44,6 +57,9 @@ func Load() *Config {
 		RefreshTokenTTL:           refreshTokenTTL,
 		ReinforcementMLServiceURL: os.Getenv("REINFORCEMENT_ML_SERVICE_URL"),
 		NextTopicMLServiceURL:     os.Getenv("NEXT_TOPIC_ML_SERVICE_URL"),
+		RedisAddr:                 os.Getenv("REDIS_ADDR"),
+		RedisPassword:             os.Getenv("REDIS_PASSWORD"),
+		RedisDB:                   redisDB,
 	}
 
 	validate(cfg)
@@ -75,5 +91,9 @@ func validate(cfg *Config) {
 	}
 	if cfg.NextTopicMLServiceURL == "" {
 		log.Println("NEXT_TOPIC_ML_SERVICE_URL is empty, next lesson ML calls will use fallback ranker")
+	}
+
+	if cfg.RedisAddr == "" {
+		log.Println("REDIS_ADDR is empty, Redis cache will be disabled")
 	}
 }

@@ -2,6 +2,7 @@ package assessment
 
 import (
 	"context"
+	"diplomaBackend/internal/cache"
 	"errors"
 	"fmt"
 	"time"
@@ -21,6 +22,7 @@ type Service struct {
 	txManager         repository.TxManager
 	progressService   progressService.ProgressService
 	adaptationService adaptationService.AdaptationService
+	cache             *cache.Cache
 }
 
 func NewService(
@@ -28,12 +30,14 @@ func NewService(
 	txManager repository.TxManager,
 	progressService progressService.ProgressService,
 	adaptationService adaptationService.AdaptationService,
+	cache *cache.Cache,
 ) service.AssessmentService {
 	return &Service{
 		assessmentRepo:    assessmentRepo,
 		txManager:         txManager,
 		progressService:   progressService,
 		adaptationService: adaptationService,
+		cache:             cache,
 	}
 }
 
@@ -46,6 +50,29 @@ func (s *Service) GetQuizByID(ctx context.Context, quizID int64, languageCode st
 		return nil, assessmentErrors.ErrInvalidLanguageCode
 	}
 
+	cacheKey := fmt.Sprintf("assessment:quiz:%d:%s", quizID, languageCode)
+	endpoint := "GET /api/assessment/quizzes/{quizId}"
+
+	var cachedQuiz dto.QuizResponse
+	if s.cache.GetJSON(ctx, cacheKey, &cachedQuiz) {
+		logger.Info(
+			"cache hit: endpoint=%s key=%s quiz_id=%d language_code=%s",
+			endpoint,
+			cacheKey,
+			quizID,
+			languageCode,
+		)
+		return &cachedQuiz, nil
+	}
+
+	logger.Info(
+		"cache miss: endpoint=%s key=%s quiz_id=%d language_code=%s",
+		endpoint,
+		cacheKey,
+		quizID,
+		languageCode,
+	)
+
 	quiz, err := s.assessmentRepo.GetQuizByID(ctx, quizID, languageCode)
 	if err != nil {
 		if !errors.Is(err, assessmentErrors.ErrQuizNotFound) {
@@ -53,6 +80,15 @@ func (s *Service) GetQuizByID(ctx context.Context, quizID int64, languageCode st
 		}
 		return nil, err
 	}
+
+	s.cache.SetJSON(ctx, cacheKey, quiz)
+	logger.Info(
+		"cache set: endpoint=%s key=%s quiz_id=%d language_code=%s",
+		endpoint,
+		cacheKey,
+		quizID,
+		languageCode,
+	)
 
 	return quiz, nil
 }

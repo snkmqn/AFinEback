@@ -1,7 +1,9 @@
 package app
 
 import (
+	"diplomaBackend/internal/cache"
 	"net/http"
+	"time"
 
 	adaptationHTTP "diplomaBackend/adaptation_service/handler"
 	adaptationPostgres "diplomaBackend/adaptation_service/repository/postgres"
@@ -35,6 +37,7 @@ import (
 type App struct {
 	db     *pgxpool.Pool
 	router http.Handler
+	cache  *cache.Cache
 }
 
 func New(cfg *config.Config) *App {
@@ -57,6 +60,13 @@ func New(cfg *config.Config) *App {
 	progressRepo := progressPostgres.NewProgressRepository(db)
 
 	adaptationRepo := adaptationPostgres.NewAdaptationRepository(db)
+
+	redisCache := cache.NewRedisCache(
+		cfg.RedisAddr,
+		cfg.RedisPassword,
+		cfg.RedisDB,
+		30*time.Minute,
+	)
 
 	var reinforcementMLClient mlclient.Client
 	if cfg.ReinforcementMLServiceURL != "" {
@@ -83,7 +93,7 @@ func New(cfg *config.Config) *App {
 		profileTxManager,
 	)
 
-	contentSvc := contentService.NewService(contentRepo)
+	contentSvc := contentService.NewService(contentRepo, redisCache)
 	progressSvc := progressService.NewService(progressRepo)
 	passwordSvc := passwordservice.NewService()
 	jwtSvc := jwtservice.NewService(cfg.JWTAccessSecret, cfg.AccessTokenTTL)
@@ -106,6 +116,7 @@ func New(cfg *config.Config) *App {
 		assessmentTxManager,
 		progressSvc,
 		adaptationSvc,
+		redisCache,
 	)
 
 	profileHandler := userProfileHandler.NewHandler(profileSvc)
@@ -128,6 +139,7 @@ func New(cfg *config.Config) *App {
 	return &App{
 		db:     db,
 		router: router,
+		cache:  redisCache,
 	}
 }
 
@@ -138,5 +150,9 @@ func (a *App) Router() http.Handler {
 func (a *App) Close() {
 	if a.db != nil {
 		a.db.Close()
+	}
+
+	if a.cache != nil {
+		a.cache.Close()
 	}
 }
